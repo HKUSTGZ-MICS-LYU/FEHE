@@ -1,0 +1,9 @@
+matplotlib
+torch
+numpy
+flwr
+datasets
+tenseal
+flwr_datasets
+flwr[simulation]
+ray
