@@ -7,14 +7,16 @@ from encryption import Enc_needed
 import filedata as fd
 import tenseal as ts
 
-
+# Configure the fit parameters for clients 
 def fit_config(server_round: int):
     config = {
         "server_round": server_round,
         "local_epochs": 3,
+        
     }
     return config
 
+# Configure the evaluation parameters for clients
 def evaluate_config(server_round: int):
     config = {
         "server_round": server_round,
@@ -43,6 +45,7 @@ class MyFlowerStrategy(FedAvg):
             on_fit_config_fn=on_fit_config_fn,
             on_evaluate_config_fn=on_evaluate_config_fn,
         )
+        self.final_accuracies = {}
         
     def aggregate_fit(self, server_round: int, results, failures):
         """
@@ -60,43 +63,36 @@ class MyFlowerStrategy(FedAvg):
         # Load public key to perform computations on encrypted data
         if Enc_needed.encryption_needed.value == 1:  # Full encryption is selected
             public_key_context = ts.context_from(fd.read_data("encrypted/public_key.txt")[0])
-            
-            
-            results_ex = None
-            num = 0
-            # Aggregate the encrypted parameters
-            print(f"Aggregating encrypted parameters for round {server_round}")
+            aggregated_weights = None
+        
             
             for client, weights in results:
-                num += 1
                 pid = weights.metrics.get("pid")
                 encrypted_proto_list = fd.read_data(f"encrypted/data_encrypted_{pid}.txt")
-                client_weight = []
-                print("Length of encrypted_proto_list: ", len(encrypted_proto_list))
+                client_weights = []
+                
                 for encrypted_proto in encrypted_proto_list:
                     encrypted_params = ts.lazy_ckks_vector_from(encrypted_proto)
                     encrypted_params.link_context(public_key_context)
-                    client_weight.append(encrypted_params)
-                    del encrypted_params
-                    
-                if results_ex is None:
-                    results_ex = client_weight
+                    client_weights.append(encrypted_params)
+                               
+                if aggregated_weights is None:
+                    aggregated_weights = client_weights
                 else:
-                    for i in range(len(client_weight)):
-                        results_ex[i] += client_weight[i]
+                    for i in range(len(client_weights)):
+                        aggregated_weights[i] += client_weights[i]
+                        
+            # Average the weights
+            for i in range(len(aggregated_weights)):
+                aggregated_weights[i] *= 1 / len(results)
             
             
-            # Write the aggregated parameters to a file
-            aggregated_params = []
-            for result in results_ex:
-                aggregated_params.append(result.serialize())
-            fd.write_data(f"encrypted/aggregated_data_encrypted_{pid}.txt", aggregated_params)
-            
-                      
-            # As Flower framework does not support CKKS encrypted objects, aggregation is by-passed with user-defined function
-            # In order to continue simulation, aggregation is performed here with in-built functions
-            aggregated_parameters = super().aggregate_fit(server_round, results, failures)
-            del results_ex
+            serialized_weights = [param.serialize() for param in aggregated_weights]
+            fd.write_data(f"encrypted/aggregated_data_encrypted_{server_round}.txt", serialized_weights)
+
+            # Continue with the aggregation with simulated data
+            return super().aggregate_fit(server_round, results, failures)
+
             
         else: # No encryption is selected
             aggregated_parameters = super().aggregate_fit(server_round, results, failures)
@@ -122,15 +118,15 @@ def create_server_fn(num_rounds, min_fit_clients, min_evaluate_clients, min_avai
 
 if __name__ == "__main__":
     my_strategy = MyFlowerStrategy(
-        min_fit_clients=1,
-        min_evaluate_clients=1,
-        min_available_clients=1,
+        min_fit_clients=3,
+        min_evaluate_clients=5,
+        min_available_clients=3,
         on_fit_config_fn=fit_config,
         on_evaluate_config_fn=evaluate_config,
     )
     fl.server.start_server(
         server_address = "localhost:8080",
-        config = fl.server.ServerConfig(num_rounds=3),
+        config = fl.server.ServerConfig(num_rounds=30),
         grpc_max_message_length = 1024 * 1024 * 1024,
         strategy = my_strategy,
     )

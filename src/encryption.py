@@ -17,8 +17,8 @@ def create_context():                                       #Declaration of cont
     global context
     context = ts.context(
     ts.SCHEME_TYPE.CKKS,
-        poly_modulus_degree = 4096,
-        coeff_mod_bit_sizes = [40, 20, 40]
+        poly_modulus_degree = 8192,
+        coeff_mod_bit_sizes = [60, 40, 40, 60]
     )
     
     #generating public key and private key pair
@@ -54,10 +54,10 @@ def param_encrypt(param_list, clientID: str):
         flat_tensor = param_tensor.flatten()
         for val in flat_tensor:
             flattened_params.append(val.item())
-    print("Length of flattened_params: ", len(flattened_params))
 
-    # Splitting the data into slices of 4096 elements
-    chunk_size = 4096
+
+    # Splitting the data into slices of 8192 elements
+    chunk_size = 8192
     num_chunks = (len(flattened_params) + chunk_size - 1) // chunk_size  # 向上取整
     chunked_params = []
     for i in range(num_chunks):
@@ -70,6 +70,7 @@ def param_encrypt(param_list, clientID: str):
     for chunk in chunked_params:
         ct = ts.ckks_vector(public_key_context, chunk)
         encrypted_params.append(ct.serialize())
+        print("Encrypted data size: ", sys.getsizeof(ct)/(1024*1024), "MB")
         
     #Writing the encrypted data to a text file
     encrypted_params_pth = "encrypted/data_encrypted_" + str(clientID) + ".txt"

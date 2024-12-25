@@ -1,3 +1,4 @@
+import argparse
 import itertools
 import logging
 
@@ -37,22 +38,18 @@ class FlowerClient(NumPyClient):
         return get_parameters(self.net)
 
     def fit(self, parameters, config):
-        server_round = config["server_round"]
-        local_epochs = config["local_epochs"]
-        print(f"FIT: Client {self.pid}, Round {server_round}, config: {config}")
+
+        print(f"FIT: Client {self.pid}, Round {config['server_round']}, config: {config}")
 
         set_parameters(self.net, parameters)
-        train(self.net, self.trainloader, epochs=local_epochs)
+        train(self.net, self.trainloader, epochs=config["local_epochs"])
         updated_params = self.net.state_dict()
        
         if Enc_needed.encryption_needed.value == 1:
-            print(f"Client {self.pid} encrypting updated parameters")
             _, serialized_dataspace = param_encrypt(updated_params, self.pid)
-            # MB
             print(f"Client {self.pid} serialized dataspace: {serialized_dataspace} MB")
             self.serialized_dataspace_log.append(serialized_dataspace)
-            
-        print(f"Client {self.pid} finished training")        
+                  
         return get_parameters(self.net), len(self.trainloader), {"pid": self.pid}
 
     def evaluate(self, parameters, config):        
@@ -61,31 +58,21 @@ class FlowerClient(NumPyClient):
         
         if Enc_needed.encryption_needed.value == 1:
             print("Load weights from encrypted file")
-            params_decrypted = param_decrypt(f"encrypted/aggregated_data_encrypted_{self.pid}.txt")
+            params_decrypted = param_decrypt(f"encrypted/aggregated_data_encrypted_{server_round}.txt")
             reshaped_params = []
-
-            # Define the shapes of the original arrays
             shapes = [np.shape(arr) for arr in parameters]
-
-            # Variable to keep track of the current index in the data
             current_index = 0
-
-            # Reshape the data and split it into individual arrays
             for shape in shapes:
                 data_result = []
                 size = np.prod(shape)
-                
-                #As the shape of model weights is not uniform, CKKS encryption fails to encrypt model weights as a tensor
-                #As a solution, it is converted to vector i.e., 1-D vector and encryption - decryption is performed
-                #To adapt the decrypted model weights to the model -> vector needsd to be reshaped back to its original shape 
                 reshaped_arr = np.reshape(params_decrypted[current_index:current_index + size], shape)
                 reshaped_params.append(reshaped_arr)
                 current_index += size
 
-            print(f"Client {self.pid} aggregated weights to the model")
+            print(f"Load Weight: Client {self.pid} aggregated weights to the model")
             set_parameters(self.net, reshaped_params)
             loss, accuracy = test(self.net, self.valloader)
-            print(f"Client {self.pid} accuracy: {accuracy}")
+            print(f"Accuracy: Client {self.pid} accuracy: {accuracy}")
             return loss, len(self.valloader), {"accuracy": float(accuracy)}
         
         set_parameters(self.net, parameters)
@@ -137,12 +124,18 @@ if __name__ == "__main__":
     
     """Create a Flower client representing a single organization."""
     BATCH_SIZE = 32
-    DATASET_NAME = "cifar10"
-    CLIENT_NUMER = 1
+    DATASET_NAME = "fashionmnist"
+ 
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    net = MODEL_MAP['Net']().to(DEVICE)
-    partition_id = 0
+    net = MODEL_MAP['LeNet5']().to(DEVICE)
+    parser = argparse.ArgumentParser(description="Flower Client")
+    parser.add_argument("--partition-id", type=int, default=0, help="Partition ID")
+    parser.add_argument("--CLIENT_NUMER", type=int, default=5, help="Number of clients")
+    
+    args = parser.parse_args()
+    partition_id = args.partition_id
+    CLIENT_NUMER = args.CLIENT_NUMER
     trainloader, valloader, _ = load_datasets(DATASET_NAME, 
                                             CLIENT_NUMER, 
                                             BATCH_SIZE,

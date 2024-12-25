@@ -45,6 +45,7 @@ def encrypt_and_save_tensors():
     pt1 = np.random.randint(0, 10000, degree)
     pt2 = np.random.randint(0, 10000, degree)
 
+  
     print("   Plaintext vectors generated.")
 
     # Convert to TenSEAL plain tensors

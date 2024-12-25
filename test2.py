@@ -76,7 +76,12 @@ for ct in ct_list:
     encrypted_tensor.link_context(secret_ctx)
     decrypted_chunk = encrypted_tensor.decrypt()
     decrypted_params.extend(decrypted_chunk)  # 解密并展平
+print(len(decrypted_params))
 
+with open("decrypted_params.txt", "w") as f:
+    for val in decrypted_params:
+        f.write(str(val) + "\n")
+f.close()
 # 验证解密后的参数长度是否与原始参数一致
 print(f"Original flattened params length: {len(flattened_params)}")
 print(f"Decrypted params length: {len(decrypted_params)}")
@@ -118,7 +123,7 @@ plt.plot([original_params.min(), original_params.max()],
 plt.savefig("parameter_comparison.png")
 
 plt.figure(figsize=(10, 6))
-differences = np.abs(original_params - decrypted_params)
+differences = original_params - decrypted_params
 plt.hist(differences, bins=100, alpha=0.75, color='blue')
 plt.xlabel("Absolute Difference")
 plt.ylabel("Frequency")
@@ -143,5 +148,3 @@ for param_name, param_tensor in params_reconstructed.items():
 model_reconstructed.load_state_dict(params_reconstructed)
 model_reconstructed.eval()
 
-# 打印模型以确认参数加载
-print(model_reconstructed)
