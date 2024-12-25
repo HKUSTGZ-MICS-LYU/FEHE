@@ -43,24 +43,15 @@ class FlowerClient(NumPyClient):
 
         set_parameters(self.net, parameters)
         train(self.net, self.trainloader, epochs=local_epochs)
-        
-        updated_params = get_parameters(self.net)
+        updated_params = self.net.state_dict()
        
-        
-        
         if Enc_needed.encryption_needed.value == 1:
             print(f"Client {self.pid} encrypting updated parameters")
             _, serialized_dataspace = param_encrypt(updated_params, self.pid)
             # MB
             print(f"Client {self.pid} serialized dataspace: {serialized_dataspace} MB")
             self.serialized_dataspace_log.append(serialized_dataspace)
-            # 展平列表
-            flattened_results = itertools.chain.from_iterable(updated_params)
-
-            with open(f"encrypted/plaintext_params_{self.pid}_{server_round}.txt", "w") as f:
-                for item in flattened_results:
-                    f.write(f"{item}\n")
-            f.close()
+            
         print(f"Client {self.pid} finished training")        
         return get_parameters(self.net), len(self.trainloader), {"pid": self.pid}
 
@@ -70,15 +61,27 @@ class FlowerClient(NumPyClient):
         
         if Enc_needed.encryption_needed.value == 1:
             print("Load weights from encrypted file")
-            params_decrypted = param_decrypt(f"encrypted/data_encrypted_{self.pid}.txt")
+            params_decrypted = param_decrypt(f"encrypted/aggregated_data_encrypted_{self.pid}.txt")
             reshaped_params = []
-            shapes = [np.shape(arr) for arr in params_decrypted]
+
+            # Define the shapes of the original arrays
+            shapes = [np.shape(arr) for arr in parameters]
+
+            # Variable to keep track of the current index in the data
             current_index = 0
+
+            # Reshape the data and split it into individual arrays
             for shape in shapes:
+                data_result = []
                 size = np.prod(shape)
-                reshaped_arr = np.reshape(params_decrypted[current_index:current_index+size], shape)
+                
+                #As the shape of model weights is not uniform, CKKS encryption fails to encrypt model weights as a tensor
+                #As a solution, it is converted to vector i.e., 1-D vector and encryption - decryption is performed
+                #To adapt the decrypted model weights to the model -> vector needsd to be reshaped back to its original shape 
+                reshaped_arr = np.reshape(params_decrypted[current_index:current_index + size], shape)
                 reshaped_params.append(reshaped_arr)
                 current_index += size
+
             print(f"Client {self.pid} aggregated weights to the model")
             set_parameters(self.net, reshaped_params)
             loss, accuracy = test(self.net, self.valloader)

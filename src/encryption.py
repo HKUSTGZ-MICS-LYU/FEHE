@@ -8,8 +8,8 @@ import sys
 
 #This block decides if the Federated Learning setup undergoes encryption and decryption during communication
 class Enc_needed(Enum):
-    # encryption_needed = 0 # data encryption and decryption is not necessary and thus regular Federated Learning is carried out
-    encryption_needed = 1 # data encryption and decryption is necessary -> Full encryption
+    encryption_needed = 1 # data encryption and decryption is not necessary and thus regular Federated Learning is carried out
+    # encryption_needed = 1 # data encryption and decryption is necessary -> Full encryption
     
 
         
@@ -48,30 +48,37 @@ def param_encrypt(param_list, clientID: str):
     #Loading public key for encryption
     public_key_context = ts.context_from(fd.read_data("encrypted/public_key.txt")[0])    
     
+    flattened_params = []
 
-    concatenated_data = np.concatenate([np.array(arr).flatten() for arr in param_list])
-    slice_size = 4096
-    num_slices = max(1, len(concatenated_data) // slice_size)  # 确保至少有一个切片
-    sliced_data = np.array_split(concatenated_data, num_slices)
-    
-    
-    encrypted_data_list = [
-        ts.ckks_tensor(public_key_context, ts.plain_tensor(slice_)).serialize()
-        for slice_ in sliced_data
-    ]
+    for param_name, param_tensor in param_list.items():
+        flat_tensor = param_tensor.flatten()
+        for val in flat_tensor:
+            flattened_params.append(val.item())
+    print("Length of flattened_params: ", len(flattened_params))
 
+    # Splitting the data into slices of 4096 elements
+    chunk_size = 4096
+    num_chunks = (len(flattened_params) + chunk_size - 1) // chunk_size  # 向上取整
+    chunked_params = []
+    for i in range(num_chunks):
+        start_idx = i * chunk_size
+        end_idx = min((i + 1) * chunk_size, len(flattened_params))
+        chunked_params.append(flattened_params[start_idx:end_idx])
 
-    #Creating a text file considering client ID and encryption depth selected
-    if Enc_needed.encryption_needed.value == 0: #  No encryption
-        encrypted_data_file_path = "encrypted/data_encrypted_" + str(clientID) + ".txt"
-    elif Enc_needed.encryption_needed.value == 1: # Full encryption
-        encrypted_data_file_path = "encrypted/data_encrypted_" + str(clientID) + ".txt"
+    # Encrypting the data
+    encrypted_params = []
+    for chunk in chunked_params:
+        ct = ts.ckks_vector(public_key_context, chunk)
+        encrypted_params.append(ct.serialize())
+        
+    #Writing the encrypted data to a text file
+    encrypted_params_pth = "encrypted/data_encrypted_" + str(clientID) + ".txt"
 
     #Writing the encrypted data list to a text file
-    fd.write_data(encrypted_data_file_path, encrypted_data_list)
+    fd.write_data(encrypted_params_pth, encrypted_params)
 
         
-    serialized_dataspace = sys.getsizeof(encrypted_data_list)/(1024*1024)
+    serialized_dataspace = sys.getsizeof(encrypted_params)/(1024*1024)
     
     return  None, serialized_dataspace
 
@@ -81,17 +88,13 @@ def param_decrypt(encrypted_weight_pth):                                        
     secret_context = ts.context_from(fd.read_data('encrypted/secret_key.txt')[0])
     
     #Selecting the text file that stores aggregation results for decryption  
-    new_results_proto = fd.read_data(encrypted_weight_pth)
+    encrypted_params = fd.read_data(encrypted_weight_pth)
 
-    new_results = []
-    for new_result_proto in new_results_proto:
-        new_result = ts.lazy_ckks_tensor_from(new_result_proto)
-        new_result.link_context(secret_context)
-        new_result = np.array(new_result.decrypt())
-        new_result = new_result.tolist()
-        new_results.append(new_result.raw)
-    # flatten the list
-    new_results = [item for sublist in new_results for item in sublist]
-
-    #Returning the decrypted data in the form of a list
-    return new_results
+    decrypted_params = []
+    for ct in encrypted_params:
+        ct = ts.ckks_vector_from(secret_context, ct)
+        ct.link_context(secret_context)
+        decrypted_chunk = ct.decrypt()
+        decrypted_params.extend(decrypted_chunk)
+        
+    return decrypted_params

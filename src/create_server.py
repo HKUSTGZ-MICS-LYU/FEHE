@@ -58,16 +58,15 @@ class MyFlowerStrategy(FedAvg):
             return None
         
         # Load public key to perform computations on encrypted data
-        public_key_context = ts.context_from(fd.read_data("encrypted/public_key.txt")[0])
-        secret_key_context = ts.context_from(fd.read_data("encrypted/secret_key.txt")[0])
-        
         if Enc_needed.encryption_needed.value == 1:  # Full encryption is selected
-            aggregated_parameters = []
+            public_key_context = ts.context_from(fd.read_data("encrypted/public_key.txt")[0])
+            
+            
             results_ex = None
             num = 0
-           
             # Aggregate the encrypted parameters
             print(f"Aggregating encrypted parameters for round {server_round}")
+            
             for client, weights in results:
                 num += 1
                 pid = weights.metrics.get("pid")
@@ -75,32 +74,25 @@ class MyFlowerStrategy(FedAvg):
                 client_weight = []
                 print("Length of encrypted_proto_list: ", len(encrypted_proto_list))
                 for encrypted_proto in encrypted_proto_list:
-                    encrypted_tensor = ts.lazy_ckks_tensor_from(encrypted_proto)
-                    encrypted_tensor.link_context(public_key_context)
-                    client_weight.append(encrypted_tensor)
-                    del encrypted_tensor
+                    encrypted_params = ts.lazy_ckks_vector_from(encrypted_proto)
+                    encrypted_params.link_context(public_key_context)
+                    client_weight.append(encrypted_params)
+                    del encrypted_params
+                    
                 if results_ex is None:
                     results_ex = client_weight
                 else:
                     for i in range(len(client_weight)):
                         results_ex[i] += client_weight[i]
             
-            print(f"Aggregated {num} encrypted parameters")
-            # Decrypt the aggregated parameters
-            for result_ex in results_ex:
-                result_ex.link_context(secret_key_context)
-                result_ex = np.array(result_ex.decrypt().raw) / num
-                aggregated_parameters.append(result_ex)
             
-            print(f"Decrypted the aggregated parameters")
-            # Save the aggregated parameters to a file
-            with open(f"encrypted/encrypted_aggregated_params_{server_round}.txt", "w") as f:
-                for item in aggregated_parameters:
-                    for subitem in item:
-                        f.write("%s\n" % subitem)
-            f.close()
+            # Write the aggregated parameters to a file
+            aggregated_params = []
+            for result in results_ex:
+                aggregated_params.append(result.serialize())
+            fd.write_data(f"encrypted/aggregated_data_encrypted_{pid}.txt", aggregated_params)
+            
                       
-
             # As Flower framework does not support CKKS encrypted objects, aggregation is by-passed with user-defined function
             # In order to continue simulation, aggregation is performed here with in-built functions
             aggregated_parameters = super().aggregate_fit(server_round, results, failures)
