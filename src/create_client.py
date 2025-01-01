@@ -49,9 +49,9 @@ class FlowerClient(NumPyClient):
         gradients = []
         for param in self.net.parameters():
             if param.grad is not None:
-            gradients.append(param.grad.cpu().numpy())
+                gradients.append(param.grad.cpu().numpy())
             else:
-            gradients.append(None)
+                gradients.append(None)
         print(f"Gradients: Client {self.pid} gradients extracted")
        
         if Enc_needed.encryption_needed.value == 1:
