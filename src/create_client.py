@@ -44,6 +44,15 @@ class FlowerClient(NumPyClient):
         set_parameters(self.net, parameters)
         train(self.net, self.trainloader, epochs=config["local_epochs"])
         updated_params = self.net.state_dict()
+
+        # Extract gradients after training
+        gradients = []
+        for param in self.net.parameters():
+            if param.grad is not None:
+            gradients.append(param.grad.cpu().numpy())
+            else:
+            gradients.append(None)
+        print(f"Gradients: Client {self.pid} gradients extracted")
        
         if Enc_needed.encryption_needed.value == 1:
             _, serialized_dataspace = param_encrypt(updated_params, self.pid)
