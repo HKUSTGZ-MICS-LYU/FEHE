@@ -1,13 +1,7 @@
 import argparse
-import itertools
-import logging
-
 import numpy as np
-logging.basicConfig(level=logging.INFO) 
-import sys
 import flwr as fl
-import os
-from flwr.common import Metrics, Context
+from flwr.common import  Context
 from flwr.client import Client, NumPyClient, ClientApp
 import torch
 from encryption import Enc_needed, param_decrypt, param_encrypt
@@ -17,15 +11,9 @@ from train import train
 from test import test
 from dataloader import load_datasets
 
-logging.basicConfig(
-    level=logging.INFO,  # Log level
-    format="%(asctime)s [%(levelname)s] %(message)s",  # Include timestamp, level, and message
-    handlers=[
-        logging.StreamHandler()  # Log to the console
-    ]
-)
 
 class FlowerClient(NumPyClient):
+    # The characteristics of the client are defined in the constructor
     def __init__(self, pid, net, trainloader, valloader):
         self.pid = pid
         self.net = net

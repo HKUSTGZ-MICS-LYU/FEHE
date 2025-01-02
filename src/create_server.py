@@ -11,8 +11,7 @@ import tenseal as ts
 def fit_config(server_round: int):
     config = {
         "server_round": server_round,
-        "local_epochs": 3,
-        
+        "local_epochs": 3,  
     }
     return config
 
