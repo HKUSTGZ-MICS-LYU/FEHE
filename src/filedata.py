@@ -8,8 +8,6 @@ def write_data(file_name: str, data):
             f.write(d + b'\n')
      
     f.close()
-
-    
         
 def read_data(file_name: str) -> bytes:
     data_list = []

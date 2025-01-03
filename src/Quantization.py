@@ -1,50 +1,109 @@
 
+import os
+from matplotlib import pyplot as plt
 import numpy as np
+import torch
 
 
 def quantize_weights(weights, n_bits):
-    """
-    仅量化权重，将权重量化为n_bits的整数表示。
-
-    参数:
-    weights (np.ndarray): 原始权重数组。
-    n_bits (int): 量化位数。
-
-    返回:
-    quantized_weights (np.ndarray): 量化后的整数权重。
-    scale (float): 权重的缩放因子。
-    """
-    # 计算权重的最大绝对值
-    max_abs = np.max(np.abs(weights))
+    '''
+    Quantization of weights to n_bits.
     
-    # 计算缩放因子，避免除以零
-    if max_abs == 0:
-        scale = 1.0
-    else:
-        scale = max_abs / (2**(n_bits - 1) - 1)  # 对称量化
+    Parameters:
+    weights (dict): Weights of the model.
+    n_bits (int): Number of bits to quantize the weights to.
     
-    # 将权重除以缩放因子并四舍五入
-    quantized_weights = np.round(weights / scale).astype(np.int32)
+    Returns:
+    quantized_weights (dict): Quantized weights.
+    scale (dict): Scale of the weights.
+    '''
     
-    # 定义量化的整数范围
-    q_min = -2**(n_bits - 1)
-    q_max = 2**(n_bits - 1) - 1
+    quantized_weights = {}
+    scales = {}
     
-    # 剪裁到有效范围
-    quantized_weights = np.clip(quantized_weights, q_min, q_max)
-    
-    return quantized_weights, scale
+    for name, param in weights.items():
+        if isinstance(param, torch.Tensor):
+            weights_np = param.detach().cpu().numpy()
+        elif isinstance(param, np.ndarray):
+            weights_np = param
+        else:
+            raise TypeError(f"Unsupported type for weights: {type(param)}. Expected torch.Tensor or numpy.ndarray.")
+        
+        max_val = np.max(np.abs(weights_np))
+        if max_val == 0:
+            scale = 1.0
+        else:
+            scale = max_val / (2 ** (n_bits - 1) - 1)
+            
+        quantized_weight = np.round(weights_np / scale).astype(np.int32)
+        
+        quantized_weights[name] = quantized_weight
+        scales[name] = scale
+        
+        
+    return quantized_weights, scales
 
-def dequantize_weights(quantized_weights, scale):
-    """
-    反量化权重，将整数量化的权重映射回浮点范围。
+def dequantize_weights(quantized_weights, scales):
+    '''
+    Dequantization of weights.
+    
+    Parameters:
+    quantized_weights (dict): Quantized weights.
+    scale (dict): Scale of the weights.
+    
+    Returns:
+    dequantized_weights (dict): Dequantized weights.
+    '''
+    
+    dequantized_weights = {}
+    
+    for name, param in quantized_weights.items():
+        if name not in scales:
+            raise KeyError(f"Scale for layer '{name}' not found in scales dictionary.")
+        
+        scale = scales[name]
+        dequantized_weight = param * scale
+        dequantized_weights[name] = dequantized_weight
+        
 
-    参数:
-    quantized_weights (np.ndarray): 量化后的整数权重。
-    scale (float): 权重的缩放因子。
-
-    返回:
-    dequantized_weights (np.ndarray): 反量化后的浮点权重。
-    """
-    dequantized_weights = quantized_weights * scale
     return dequantized_weights
+
+# Test the quantization and dequantization functions
+def test_quantization():
+    # Ensure the 'plots' directory exists
+    plots_dir = "./plots"
+    os.makedirs(plots_dir, exist_ok=True)
+    
+    weights = {
+        "conv1.weight": np.random.rand(3, 3, 3, 3),
+        "conv2.weight": np.random.rand(3, 3, 3, 3),
+        "fc1.weight": np.random.rand(10, 10),
+        "fc2.weight": np.random.rand(10, 10),
+    }
+    
+    quantized_weights, scales = quantize_weights(weights, 16)
+    dequantized_weights = dequantize_weights(quantized_weights, scales)
+    
+    # Print debug information and assert
+    for name, param in weights.items():
+        print(f"Original weights for {name}:\n{param}")
+        print(f"Dequantized weights for {name}:\n{dequantized_weights[name]}")
+        print(f"Scale for {name}: {scales[name]}\n")
+
+
+        
+    print("Quantization and Dequantization functions are correct.")
+    # Print the error and plot the weights
+    for name, param in weights.items():
+        error = np.abs(param - dequantized_weights[name])
+        print(f"Error for {name}: {np.max(error)}")
+        
+        plt.figure()
+        plt.hist(param.flatten(), bins=100, alpha=0.5, label="Original")
+        plt.hist(dequantized_weights[name].flatten(), bins=100, alpha=0.5, label="Dequantized")
+        plt.legend()
+        plt.title(name)
+        plt.savefig(os.path.join(plots_dir, f"{name}.png"))
+        plt.close()
+        
+# test_quantization()

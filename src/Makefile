@@ -1,7 +1,6 @@
 # 定义变量
 PYTHON = python3
-# BSUB = bsub -q gpu -Is -gpu "num=1"
-BSUB = 
+BSUB = bsub -q gpu -Is -gpu "num=1"
 SERVER_SCRIPT = create_server.py
 CLIENT_SCRIPT = create_client.py
 SRC_DIR = encrypted

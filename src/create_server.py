@@ -11,7 +11,7 @@ import tenseal as ts
 def fit_config(server_round: int):
     config = {
         "server_round": server_round,
-        "local_epochs": 3,  
+        "local_epochs": 30,  
     }
     return config
 
@@ -117,9 +117,9 @@ def create_server_fn(num_rounds, min_fit_clients, min_evaluate_clients, min_avai
 
 if __name__ == "__main__":
     my_strategy = MyFlowerStrategy(
-        min_fit_clients=3,
-        min_evaluate_clients=5,
-        min_available_clients=3,
+        min_fit_clients=1,
+        min_evaluate_clients=1,
+        min_available_clients=1,
         on_fit_config_fn=fit_config,
         on_evaluate_config_fn=evaluate_config,
     )

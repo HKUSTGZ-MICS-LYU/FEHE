@@ -45,10 +45,6 @@ def mul_inv(a, b):
     return x1
 
 def center(a, b):
-    if b == 0:
-        return a
-    else:
-        return a % b
     if a > b // 2:
         a -= b
     elif a < -b // 2:
@@ -123,7 +119,7 @@ def ntt_inverse(poly, table):
                 tb = ret[k * group + j + step]
                 ret[k * group + j] = center((ta + tb) % mod, mod)
                 ret[k * group + j + step] = center(
-                    barrett_mul((ta - tb), table[int(math.log(n, 2)) - 1 - i][k], mod), mod)
+                    barrett_mul((ta - tb), table[int(math.log(poly.n, 2)) - 1 - i][k], mod), mod)
     for i in range(poly.n):
         ret[i] = center(ret[i] * modInverse(poly.n, mod) % mod, mod)
     return polynomial(ret, mod, False)
@@ -858,38 +854,37 @@ class BFVContext(object):
         # NTT tables
         self.ntt_forward_table = []
         self.ntt_inverse_table = []
-        with open("./hardware/src/test/scala/FHE_test/modulus.txt", "w") as f:
-            for mod in self.q_i + self.p_i:
-                G = 2
-                for i in range(2, mod):
-                    if is_primitive_root(i, mod):
-                        G = i
-                        break
-                f.write(str(mod)+' '+str(G)+'\n')                   
-                TABLE = []
-                for i in range(2,int(math.log(self.n, 2))+2):
-                    tmp = []
-                    for j in range(0, 2**i, 2):
-                        fmt = '{:0' + str(i) + 'b}'
-                        bitrev = int(fmt.format(j)[::-1], 2)
-                        c = (pow(G, int(((mod-1)/(2**i))*bitrev), mod)) % mod
-                        tmp.append(center(c, mod))
-                    TABLE.append(tmp[int(len(tmp)/2):])
-                self.ntt_forward_table.append(TABLE)
+      
+        for mod in self.q_i + self.p_i:
+            G = 2
+            for i in range(2, mod):
+                if is_primitive_root(i, mod):
+                    G = i
+                    break                 
+            TABLE = []
+            for i in range(2,int(math.log(self.n, 2))+2):
+                tmp = []
+                for j in range(0, 2**i, 2):
+                    fmt = '{:0' + str(i) + 'b}'
+                    bitrev = int(fmt.format(j)[::-1], 2)
+                    c = (pow(G, int(((mod-1)/(2**i))*bitrev), mod)) % mod
+                    tmp.append(center(c, mod))
+                TABLE.append(tmp[int(len(tmp)/2):])
+            self.ntt_forward_table.append(TABLE)
 
-                INV_TABLE = []
-                for i in range(2,int(math.log(self.n, 2))+2):
-                    tmp = []
-                    for j in range(0, 2**i, 2):
-                        fmt = '{:0' + str(i) + 'b}'
-                        bitrev = int(fmt.format(j)[::-1], 2)
-                    
-                        c = (pow(G, ((mod-1)-(bitrev*(mod-1)//(2**i))) % (mod-1), mod)) % mod
-                        tmp.append(center(c, mod))
-                    INV_TABLE.append(tmp[int(len(tmp)/2):])
-                self.ntt_inverse_table.append(INV_TABLE)
-        f.close()
-   
+            INV_TABLE = []
+            for i in range(2,int(math.log(self.n, 2))+2):
+                tmp = []
+                for j in range(0, 2**i, 2):
+                    fmt = '{:0' + str(i) + 'b}'
+                    bitrev = int(fmt.format(j)[::-1], 2)
+                
+                    c = (pow(G, ((mod-1)-(bitrev*(mod-1)//(2**i))) % (mod-1), mod)) % mod
+                    tmp.append(center(c, mod))
+                INV_TABLE.append(tmp[int(len(tmp)/2):])
+            self.ntt_inverse_table.append(INV_TABLE)
+    
+
                  
             
                 
@@ -903,78 +898,5 @@ def Print(v, n):
             sys.stdout.write('%6d ' % v[i * (n // 2) + j])
         sys.stdout.write('\n')
 
-n = 64
 
-t = [65537]
-q = [28, 28, 28]
-
-# Generate list of numbers from 0 to n-1
-vector1 = list(range(n))
-
-
-context = BFVContext(q, n, t)
-
-
-        
-
-pt1 = context.crt_and_encode(vector1)
-
-
-
-with open("test.txt", "wb") as fp:
-    pickle.dump(context, fp)
-
-ct = context.encrypt(pt1)
-context.printBudget(ct)
-
-ct = context.HAdd(ct, ct)
-context.printBudget(ct)
-
-ct = context.HMul(ct, ct)
-with open('./hardware/src/test/scala/FHE_test/result.txt', 'w') as f:
-    for i in ct[0][0]:
-        f.write(str(i.poly) + '\n')
-    for i in ct[0][1]:
-        f.write(str(i.poly) + '\n')
-f.close()
-context.printBudget(ct)
-
-# for i in range(20):
-#     print(f"The {i}-th multiplication")
-#     ct = context.HMul(ct, ct)
-#     context.printBudget(ct)
-#     vector1 = [(i ** 2) % t[0] for i in vector1]
-#     Print(vector1, n)
-#     pt = context.decrypt(ct)
-#     out = context.decode_and_reconstruct(pt)
-#     Print(out, n)
-#     if out != vector1:
-#         break
-# with open('./hardware/src/test/scala/FHE_test/pre_rotate.txt', 'w') as f:
-#     for i in ct[0][0]:
-#         f.write(str(i.poly) + '\n')
-#     for i in ct[0][1]:
-#         f.write(str(i.poly) + '\n')
-# f.close()
-# ct = context.rotate_row(ct, 1)
-# context.printBudget(ct)
-# with open('./hardware/src/test/scala/FHE_test/post_rotate.txt', 'w') as f:
-#     for i in ct[0][0]:
-#         f.write(str(i.poly) + '\n')
-#     for i in ct[0][1]:
-#         f.write(str(i.poly) + '\n')
-# f.close()
-
-# ct = context.rotate_column(ct, 1)
-# context.printBudget(ct)
-
-
-vector1 = [((i * 2) ** 2) % t[0] for i in vector1]
-Print(vector1, n)
-print("   ")
-pt = context.decrypt(ct)
-out = context.decode_and_reconstruct(pt)
-Print(out, n)
-if out == vector1:
-    print("Success")
  
