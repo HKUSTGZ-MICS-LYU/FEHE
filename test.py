@@ -1,5 +1,6 @@
 import os
 import pickle
+import time
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -8,6 +9,7 @@ from torchvision import datasets, transforms
 
 from src.bfv_rns import BFVContext
 from src.Quantization import dequantize_weights, quantize_weights
+import seaborn as sns
 
 # 定义一个简单的全连接网络
 class SimpleNet(nn.Module):
@@ -84,7 +86,7 @@ def create_context():
     global context
     n = 4096
     t = [65537]
-    q = [28, 28, 28]
+    q = [30, 30, 30]
     context = BFVContext(q, n, t)
     # save context with pickle
     with open("context.pkl", "wb") as f:
@@ -100,6 +102,12 @@ def param_encrypt(param_list):
         with open("context.pkl", "rb") as f:
             context = pickle.load(f)
         f.close()
+        
+        
+    print("n:",context.n)
+    print("t:", context.t[0])
+    print("delta:", context.q // context.t[0])
+    print("qi:",context.q_i)
     
     
     # Flatten the parameters and split them into chunks
@@ -111,7 +119,10 @@ def param_encrypt(param_list):
             flattened_params.append(val.item())
             
     chunk_size = 4096
+    global num_chunks
+
     num_chunks = (len(flattened_params) + chunk_size - 1) // chunk_size
+    print("num_chunks:", num_chunks)
     chunked_params = []
     for i in range(num_chunks):
         start_idx = i * chunk_size
@@ -124,9 +135,22 @@ def param_encrypt(param_list):
         
     # Encrypt the data
     encrypted_params = []
+    global encoded_time 
+    encoded_time = 0
+    global encrypted_time 
+    encrypted_time = 0
     for chunk in chunked_params:
+        
+        encoded_time_temp = time.time()
         encoded_param = context.crt_and_encode(chunk)
+        encoded_time_temp = time.time() - encoded_time_temp
+        encoded_time += encoded_time_temp
+
+        encrypted_time_temp = time.time()
         encrypted_param = context.encrypt(encoded_param)
+        encrypted_time_temp = time.time() - encrypted_time_temp
+        encrypted_time += encrypted_time_temp
+
         encrypted_params.append(encrypted_param)
         
     return encrypted_params
@@ -136,9 +160,21 @@ def param_decrypt(encrypted_params, params):
     # Reconstructed parameters are in the form of a dictionary like params
     global context
     decrypted_params = []
+    global decoded_time
+    decoded_time = 0
+    global decrypted_time
+    decrypted_time = 0
     for i, encrypted_param in enumerate(encrypted_params):
+        decrypted_time_temp = time.time()
         decrypted_param = context.decrypt(encrypted_param)
+        decrypted_time_temp = time.time() - decrypted_time_temp
+        decrypted_time += decrypted_time_temp
+        
+        decoded_time_temp = time.time()
         decoded_param = context.decode_and_reconstruct(decrypted_param)
+        decoded_time_temp = time.time() - decoded_time_temp
+        decoded_time += decoded_time_temp
+        
         decrypted_params.extend(decoded_param)
         
     # Reshape the decoded param to the original shape
@@ -176,12 +212,12 @@ def main():
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-    # Train the model
-    print("0) Train and Test the model")
-    for epoch in range(10):
-        train(model, device, train_loader, optimizer, criterion, epoch)
-    torch.save(model.state_dict(), "simple_net.pth")
-    test(model, device, test_loader, criterion)
+    # # Train the model
+    # print("0) Train and Test the model")
+    # for epoch in range(10):
+    #     train(model, device, train_loader, optimizer, criterion, epoch)
+    # torch.save(model.state_dict(), "simple_net.pth")
+    # test(model, device, test_loader, criterion)
     
     print("1) Load the model")
     model.load_state_dict(torch.load("simple_net.pth", weights_only=True))
@@ -192,7 +228,7 @@ def main():
     quantized_params, scales = quantize_weights(original_params, 8)
 
     # Encrypted the weights
-    # print("3) Encrypt the weights")
+    print("3) Encrypt the weights")
     encrypted_params = param_encrypt(quantized_params)
     
     # # Decrypt the weights
@@ -212,6 +248,40 @@ def main():
     print("7) Test the model")
     test(model, device, test_loader, criterion)
     
+    # Plot encrypt time and encoding time
+    print("8) Plot encode time, encrypt time, decode time and decrypt time")
+    print("encoded_time:", encoded_time)
+    print("encrypted_time:", encrypted_time)
+    print("decoded_time:", decoded_time)
+    print("decrypted_time:", decrypted_time)
+    
+    # Plot the time
+    import matplotlib.pyplot as plt
+
+
+    # 计算每个操作的平均时间
+    times = [encoded_time/num_chunks, encrypted_time/num_chunks, decoded_time/num_chunks, decrypted_time/num_chunks]
+    labels = ["Encoded Time", "Encrypted Time", "Decoded Time", "Decrypted Time"]
+
+    # 创建图形
+    plt.figure(figsize=(10, 6))
+    bars = plt.bar(labels, times, color=sns.color_palette("viridis", 4))
+
+    # 在每个柱子上方显示数值
+    for bar in bars:
+        height = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width()/2, height, f'{height:.2f}', 
+                ha='center', va='bottom', fontsize=12, fontweight='bold')
+
+    # 添加标题和标签
+    plt.title("Time Breakdown for Encoding, Encrypting, Decoding, and Decrypting", fontsize=16)
+    plt.xlabel("Operation", fontsize=14)
+    plt.ylabel("Time (seconds)", fontsize=14)
+
+    # 保存图片
+    plt.savefig("time_breakdown.png", bbox_inches='tight')
+    # plt.show()
+
 
         
 
