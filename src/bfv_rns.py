@@ -1,3 +1,4 @@
+import time
 from sympy import *
 from decimal import *
 import random
@@ -6,6 +7,7 @@ import math
 import datetime
 import pickle
 from functools import reduce
+import matplotlib.pyplot as plt
 
 getcontext().prec = 300
 
@@ -313,7 +315,14 @@ class BFVEncryptor(object):
         e2 = sample(2, self.q, self.n)
         u = sample(2, self.q, self.n)
         m = poly.change_mod(self.q)
-        tmp_ct = (m * self.delta + self.pk[0] * u + e1, self.pk[1] * u + e2)
+        
+  
+        tmp_ct0 = m * self.delta + self.pk[0] * u + e1
+        tmp_ct1 = self.pk[1] * u + e2
+
+
+        tmp_ct = (tmp_ct0, tmp_ct1)
+        
 
         ct0 = []
         ct1 = []
@@ -594,21 +603,27 @@ class BFVEncoder(object):
 
     def encode(self, poly):
         ret = [0] * self.n
+   
         for i in range(self.n):
             s = 0
             for j in range(self.n):
-                s = (s + poly[j] * pow(self.root, (-i * self.basis[j]), self.t)) % self.t
+                term = pow(self.root, (i * self.basis[j]), self.t)
+                temp = poly[j] * term
+                s = (s + temp) % self.t
             ret[i] = s
+            
         for i in range(self.n):
             ret[i] = ret[i] * modInverse(self.n, self.t) % self.t
-        return polynomial(ret, self.t)
 
+        
+        return polynomial(ret, self.t)
+    
     def decode(self, poly):
         ret = [0] * self.n
         for i in range(self.n):
             s = 0
             for j in range(self.n):
-                s = (s + poly.poly[j] * pow(self.root, (j * self.basis[i]), self.t)) % self.t
+                s = (s + poly.poly[j] * pow(self.root, (j * self.basis[i]), self.t)) % self.t          
             ret[i] = center(s, self.t)
         return ret
 

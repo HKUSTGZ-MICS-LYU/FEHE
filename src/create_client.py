@@ -20,14 +20,14 @@ class FlowerClient(NumPyClient):
         self.trainloader = trainloader
         self.valloader = valloader
         self.serialized_dataspace_log = []
+        self.epoch_accuracy = {}
 
     def get_parameters(self, config):
-        print(f"GET PARAM: Client {self.pid}")
+
         return get_parameters(self.net)
 
     def fit(self, parameters, config):
 
-        print(f"FIT: Client {self.pid}, Round {config['server_round']}, config: {config}")
 
         set_parameters(self.net, parameters)
         train(self.net, self.trainloader, epochs=config["local_epochs"])
@@ -44,7 +44,6 @@ class FlowerClient(NumPyClient):
        
         if Enc_needed.encryption_needed.value == 1:
             _, serialized_dataspace = param_encrypt(updated_params, self.pid)
-            print(f"Client {self.pid} serialized dataspace: {serialized_dataspace} MB")
             self.serialized_dataspace_log.append(serialized_dataspace)
                   
         return get_parameters(self.net), len(self.trainloader), {"pid": self.pid}
@@ -54,7 +53,6 @@ class FlowerClient(NumPyClient):
         print(f"EVALUATE: Client {self.pid}, server_round: {server_round}")
         
         if Enc_needed.encryption_needed.value == 1:
-            print("Load weights from encrypted file")
             params_decrypted = param_decrypt(f"encrypted/aggregated_data_encrypted_{server_round}.txt")
             reshaped_params = []
             shapes = [np.shape(arr) for arr in parameters]
@@ -66,15 +64,13 @@ class FlowerClient(NumPyClient):
                 reshaped_params.append(reshaped_arr)
                 current_index += size
 
-            print(f"Load Weight: Client {self.pid} aggregated weights to the model")
             set_parameters(self.net, reshaped_params)
             loss, accuracy = test(self.net, self.valloader)
-            print(f"Accuracy: Client {self.pid} accuracy: {accuracy}")
             return loss, len(self.valloader), {"accuracy": float(accuracy)}
         
         set_parameters(self.net, parameters)
         loss, accuracy = test(self.net, self.valloader)
-        print(f"Client {self.pid} accuracy: {accuracy}")
+        self.epoch_accuracy[server_round] = accuracy
         return loss, len(self.valloader), {"accuracy": float(accuracy)}
     
 def client_fn(context) -> Client:
