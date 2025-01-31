@@ -4,7 +4,7 @@ BSUB = bsub -q gpu -Is -gpu "num=1"
 SERVER_SCRIPT = create_server.py
 CLIENT_SCRIPT = create_client.py
 SRC_DIR = encrypted
-NUM_CLIENTS = 5  # 客户端数量
+NUM_CLIENTS = 10  # 客户端数量
 
 # 默认目标
 all: 

@@ -1,72 +1,73 @@
-
 import os
 from matplotlib import pyplot as plt
 import numpy as np
 import torch
 
 
-def quantize_weights(weights, n_bits):
+def quantize_weights(weight, n_bits, global_max = None, global_min = None):
     '''
     Quantization of weights to n_bits.
     
     Parameters:
-    weights (dict): Weights of the model.
+    weights (list): List of weights (each weight is a torch.Tensor or numpy.ndarray).
     n_bits (int): Number of bits to quantize the weights to.
     
     Returns:
-    quantized_weights (dict): Quantized weights.
-    scale (dict): Scale of the weights.
+    quantized_weights (list): Quantized weights.
+    scales (int): Scale of the weights.
+    min_vals (int): Minimum values of the weights.
     '''
     
-    quantized_weights = {}
-    scales = {}
+    scale = None
+    min_val = None
     
-    for name, param in weights.items():
-        if isinstance(param, torch.Tensor):
-            weights_np = param.detach().cpu().numpy()
-        elif isinstance(param, np.ndarray):
-            weights_np = param
-        else:
-            raise TypeError(f"Unsupported type for weights: {type(param)}. Expected torch.Tensor or numpy.ndarray.")
-        
-        max_val = np.max(np.abs(weights_np))
-        if max_val == 0:
-            scale = 1.0
-        else:
-            scale = max_val / (2 ** (n_bits - 1) - 1)
-            
-        quantized_weight = np.round(weights_np / scale).astype(np.int32)
-        
-        quantized_weights[name] = quantized_weight
-        scales[name] = scale
-        
-        
-    return quantized_weights, scales
+    
+    weight = np.array(weight)
 
-def dequantize_weights(quantized_weights, scales):
+    # Get the global min and max if not provided
+    if global_min is None or global_max is None:
+        min_val = np.min(weight)
+        max_val = np.max(weight)
+    else:
+        min_val = global_min
+        max_val = global_max
+    
+    
+    # Handle case where all values are the same
+    if max_val == min_val:
+        scale = 1.0  # Avoid division by zero, scale can be arbitrary
+        quantized_weight = np.zeros_like(weight, dtype=np.int32)
+    else:
+        # Calculate the scale
+        scale = (max_val - min_val) / (2 ** n_bits - 1)
+        
+        
+        # Quantize and clip to prevent overflow
+        quantized_weight = np.round((weight - min_val) / scale)
+        quantized_weight = np.clip(quantized_weight, 0, 2**n_bits - 1).astype(np.int32)
+    
+    
+    return quantized_weight, scale, min_val
+
+
+def dequantize_weights(quantized_weight, scale, min_val):
     '''
-    Dequantization of weights.
+    Dequantization of weights from n_bits.
     
     Parameters:
-    quantized_weights (dict): Quantized weights.
-    scale (dict): Scale of the weights.
+    quantized_weight (list): Quantized weights.
+    scales (int): Scale of the weights.
+    min_vals (int): Minimum values of the weights.
     
     Returns:
-    dequantized_weights (dict): Dequantized weights.
+    dequantized_weight (list): Dequantized weights.
     '''
-    
-    dequantized_weights = {}
-    
-    for name, param in quantized_weights.items():
-        if name not in scales:
-            raise KeyError(f"Scale for layer '{name}' not found in scales dictionary.")
+    dequantized_weight = []
+    for weight in quantized_weight:
+        dequantized_weight.append(weight * scale + min_val)
         
-        scale = scales[name]
-        dequantized_weight = param * scale
-        dequantized_weights[name] = dequantized_weight
-        
+    return dequantized_weight
 
-    return dequantized_weights
 
 # Test the quantization and dequantization functions
 def test_quantization():
@@ -74,36 +75,40 @@ def test_quantization():
     plots_dir = "./plots"
     os.makedirs(plots_dir, exist_ok=True)
     
-    weights = {
-        "conv1.weight": np.random.rand(3, 3, 3, 3),
-        "conv2.weight": np.random.rand(3, 3, 3, 3),
-        "fc1.weight": np.random.rand(10, 10),
-        "fc2.weight": np.random.rand(10, 10),
-    }
+    # Create a list of weights (including edge cases)
+    weights = np.random.randn(1, 100),  # Normal distribution
     
-    quantized_weights, scales = quantize_weights(weights, 16)
-    dequantized_weights = dequantize_weights(quantized_weights, scales)
     
-    # Print debug information and assert
-    for name, param in weights.items():
-        print(f"Original weights for {name}:\n{param}")
-        print(f"Dequantized weights for {name}:\n{dequantized_weights[name]}")
-        print(f"Scale for {name}: {scales[name]}\n")
-
-
+    # Quantize and dequantize the weights
+    quantized_weights, scales, min_vals = quantize_weights(weights, 8)
+    dequantized_weights = dequantize_weights(quantized_weights, scales, min_vals)
+    
+    for i, (weight, dequantized_weight) in enumerate(zip(weights, dequantized_weights)):
+        print(f"\nWeight {i}:")
+        print(f"Original range: {np.min(weight):.4f} to {np.max(weight):.4f}")
+        print(f"Dequantized range: {np.min(dequantized_weight):.4f} to {np.max(dequantized_weight):.4f}")
         
-    print("Quantization and Dequantization functions are correct.")
-    # Print the error and plot the weights
-    for name, param in weights.items():
-        error = np.abs(param - dequantized_weights[name])
-        print(f"Error for {name}: {np.max(error)}")
+    print("\nQuantization and Dequantization functions are verified.")
+    
+    # Plot the weights comparison
+    for i, (weight, dequantized_weight) in enumerate(zip(weights, dequantized_weights)):
+        plt.figure(figsize=(10, 4))
         
-        plt.figure()
-        plt.hist(param.flatten(), bins=100, alpha=0.5, label="Original")
-        plt.hist(dequantized_weights[name].flatten(), bins=100, alpha=0.5, label="Dequantized")
+        plt.subplot(1, 2, 1)
+        plt.hist(weight.flatten(), bins=50, alpha=0.7, label="Original")
+        plt.hist(dequantized_weight.flatten(), bins=50, alpha=0.7, label="Dequantized")
         plt.legend()
-        plt.title(name)
-        plt.savefig(os.path.join(plots_dir, f"{name}.png"))
-        plt.close()
+        plt.title(f"Weight {i} Distribution")
         
+        plt.subplot(1, 2, 2)
+        error = np.abs(weight - dequantized_weight)
+        plt.plot(error.flatten(), marker='o', linestyle='', alpha=0.5)
+        plt.yscale('log')
+        plt.title(f"Pointwise Absolute Error (Max: {np.max(error):.2e})")
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(plots_dir, f"weight_{i}_comparison.png"))
+        plt.close()
+
+# Uncomment to run the test
 # test_quantization()

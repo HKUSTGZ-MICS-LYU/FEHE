@@ -10,7 +10,10 @@ from utils import get_parameters, set_parameters
 from train import train
 from test import test
 from dataloader import load_datasets
+from Quantization import quantize_weights, dequantize_weights
 
+ 
+Quantization_Bits = 8
 
 class FlowerClient(NumPyClient):
     # The characteristics of the client are defined in the constructor
@@ -21,44 +24,50 @@ class FlowerClient(NumPyClient):
         self.valloader = valloader
         self.serialized_dataspace_log = []
         self.epoch_accuracy = {}
+        self.scales = None
+        self.min_vals = None
 
     def get_parameters(self, config):
-
         return get_parameters(self.net)
 
     def fit(self, parameters, config):
-
-
+        
         set_parameters(self.net, parameters)
-        train(self.net, self.trainloader, epochs=config["local_epochs"])
+        train(self.net, self.trainloader, epochs=config["local_epochs"], verbose = False)
         updated_params = self.net.state_dict()
 
-        # Extract gradients after training
-        gradients = []
-        for param in self.net.parameters():
-            if param.grad is not None:
-                gradients.append(param.grad.cpu().numpy())
-            else:
-                gradients.append(None)
-        print(f"Gradients: Client {self.pid} gradients extracted")
-       
+        # # Flatten the parameters and get the max and min values
+        # flattened_params = []
+        # for param in updated_params.values():
+        #     flattened_params.extend(param.cpu().numpy().flatten().tolist())
+        # local_max = max(flattened_params)
+        # local_min = min(flattened_params)
+    
+        # # Get the global max and min values
+        # global_max = config.get("global_max")
+        # global_min = config.get("global_min")
+
+        # # Get the quantization parameters
+        # quant_max = global_max if (global_max is not None and global_min is not None) else local_max
+        # quant_min = global_min if (global_max is not None and global_min is not None) else local_min
+
+        # # Quantize the weights
+        # quantized_params, scale, zero_point = quantize_weights(flattened_params, Quantization_Bits, quant_max, quant_min)
+        
         if Enc_needed.encryption_needed.value == 1:
-            _, serialized_dataspace = param_encrypt(updated_params, self.pid)
+            _, serialized_dataspace, self.scales, self.min_vals = param_encrypt(updated_params, self.pid)
             self.serialized_dataspace_log.append(serialized_dataspace)
                   
         return get_parameters(self.net), len(self.trainloader), {"pid": self.pid}
 
     def evaluate(self, parameters, config):        
         server_round = config["server_round"]
-        print(f"EVALUATE: Client {self.pid}, server_round: {server_round}")
-        
         if Enc_needed.encryption_needed.value == 1:
-            params_decrypted = param_decrypt(f"encrypted/aggregated_data_encrypted_{server_round}.txt")
+            params_decrypted = param_decrypt(f"encrypted/aggregated_data_encrypted_{server_round}.txt", self.scales, self.min_vals)
             reshaped_params = []
             shapes = [np.shape(arr) for arr in parameters]
             current_index = 0
             for shape in shapes:
-                data_result = []
                 size = np.prod(shape)
                 reshaped_arr = np.reshape(params_decrypted[current_index:current_index + size], shape)
                 reshaped_params.append(reshaped_arr)
@@ -66,12 +75,53 @@ class FlowerClient(NumPyClient):
 
             set_parameters(self.net, reshaped_params)
             loss, accuracy = test(self.net, self.valloader)
+            self.epoch_accuracy[server_round] = accuracy
+            
+            if server_round == config.get("total_rounds"):
+                self.on_train_end()
             return loss, len(self.valloader), {"accuracy": float(accuracy)}
         
         set_parameters(self.net, parameters)
         loss, accuracy = test(self.net, self.valloader)
-        self.epoch_accuracy[server_round] = accuracy
+        self.epoch_accuracy[server_round] = accuracy            
         return loss, len(self.valloader), {"accuracy": float(accuracy)}
+    
+    def _reshape_parameters(self, parameters, decrypted_data):
+        """Reshape the decrypted data to match the shape of the original parameters."""
+        reshaped_params = []
+        current_index = 0
+        for shape in [np.shape(arr) for arr in parameters]:
+            size = np.prod(shape)
+            reshaped_arr = np.reshape(
+                decrypted_data[current_index:current_index + size], 
+                shape
+            )
+            reshaped_params.append(reshaped_arr)
+            current_index += size
+        return reshaped_params
+    
+    def on_train_end(self):
+        """Print the accuracy of the client after training."""
+        if not self.epoch_accuracy:
+            return
+            
+        print(f"\nClient {self.pid} Accuracy Report:")
+        for rnd, acc in sorted(self.epoch_accuracy.items()):
+            print(f" Round {rnd}: {acc:.4f}")
+        
+        self._save_to_csv()
+    
+    def _save_to_csv(self):
+        """Save the accuracy log to a CSV file."""
+        csv_path = f"client_{self.pid}_accuracy.csv"
+        try:
+            with open(csv_path, "w") as f:
+                f.write("round,accuracy\n")
+                for rnd, acc in sorted(self.epoch_accuracy.items()):
+                    f.write(f"{rnd},{acc}\n")
+            print(f"Accuracy log saved to {csv_path}")
+        except Exception as e:
+            print(f"Error saving accuracy log: {str(e)}")
     
 def client_fn(context) -> Client:
     """Create a Flower client representing a single organization."""
@@ -92,7 +142,6 @@ def client_fn(context) -> Client:
                                             )
 
 
-    print(f"Client {partition_id} created with {len(trainloader)} train and {len(valloader)} validation samples")
     return FlowerClient(partition_id, net, trainloader, valloader).to_client()
 
 
@@ -136,9 +185,6 @@ if __name__ == "__main__":
                                             federated=True
                                             )
 
-
-    print(f"Client {partition_id} created with {len(trainloader)} train and {len(valloader)} validation samples")
-    
 
     fl.client.start_numpy_client(
         server_address="localhost:8080",

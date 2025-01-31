@@ -5,20 +5,24 @@ import filedata as fd
 import numpy as np
 from enum import Enum
 import sys
+from Quantization import quantize_weights, dequantize_weights
+
+
 
 #This block decides if the Federated Learning setup undergoes encryption and decryption during communication
 class Enc_needed(Enum):
-    encryption_needed = 1 # data encryption and decryption is not necessary and thus regular Federated Learning is carried out
-    # encryption_needed = 1 # data encryption and decryption is necessary -> Full encryption
-    
-
+    # If encryption_needed is 0, then FL without FHE
+    # If encryption_needed is 1, then FL with FHE
+    encryption_needed = 1
+        
+ 
         
 def create_context():                                       #Declaration of context to generate keys 
     global context
     context = ts.context(
-    ts.SCHEME_TYPE.CKKS,
-        poly_modulus_degree = 8192,
-        coeff_mod_bit_sizes = [60, 40, 40, 60]
+        ts.SCHEME_TYPE.BFV,
+        poly_modulus_degree=4096,
+        plain_modulus=1032193        
     )
     
     #generating public key and private key pair
@@ -54,10 +58,11 @@ def param_encrypt(param_list, clientID: str):
         flat_tensor = param_tensor.flatten()
         for val in flat_tensor:
             flattened_params.append(val.item())
-
-
+   
+    flattened_params, scales, min_vals = quantize_weights(flattened_params, 8, 1, -1)
+     
     # Splitting the data into slices of 8192 elements
-    chunk_size = 8192
+    chunk_size = 4096
     num_chunks = (len(flattened_params) + chunk_size - 1) // chunk_size  # 向上取整
     chunked_params = []
     for i in range(num_chunks):
@@ -68,9 +73,8 @@ def param_encrypt(param_list, clientID: str):
     # Encrypting the data
     encrypted_params = []
     for chunk in chunked_params:
-        ct = ts.ckks_vector(public_key_context, chunk)
+        ct = ts.bfv_vector(public_key_context, chunk)
         encrypted_params.append(ct.serialize())
-        print("Encrypted data size: ", sys.getsizeof(ct)/(1024*1024), "MB")
         
     #Writing the encrypted data to a text file
     encrypted_params_pth = "encrypted/data_encrypted_" + str(clientID) + ".txt"
@@ -81,9 +85,9 @@ def param_encrypt(param_list, clientID: str):
         
     serialized_dataspace = sys.getsizeof(encrypted_params)/(1024*1024)
     
-    return  None, serialized_dataspace
+    return  None, serialized_dataspace, scales, min_vals
 
-def param_decrypt(encrypted_weight_pth):                                        #Function to implement decryption
+def param_decrypt(encrypted_weight_pth, scales, min_vals):                                        #Function to implement decryption
     
     #Loading secret key to decrypted the encrypted data
     secret_context = ts.context_from(fd.read_data('encrypted/secret_key.txt')[0])
@@ -93,9 +97,18 @@ def param_decrypt(encrypted_weight_pth):                                        
 
     decrypted_params = []
     for ct in encrypted_params:
-        ct = ts.ckks_vector_from(secret_context, ct)
+        ct = ts.bfv_vector_from(secret_context, ct)
         ct.link_context(secret_context)
         decrypted_chunk = ct.decrypt()
         decrypted_params.extend(decrypted_chunk)
         
+    decrypted_params = [decrypted_params[i] / 10 for i in range(len(decrypted_params))]    
+  
+    decrypted_params = dequantize_weights(decrypted_params, scales, min_vals)
+    
+    with open("decrypted.txt", 'w') as f:
+        for item in decrypted_params:
+            f.write("%s\n" % item)
+    f.close()
+
     return decrypted_params
