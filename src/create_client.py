@@ -11,9 +11,10 @@ from train import train
 from test import test
 from dataloader import load_datasets
 from Quantization import quantize_weights, dequantize_weights
+import time
 
  
-Quantization_Bits = 8
+
 
 class FlowerClient(NumPyClient):
     # The characteristics of the client are defined in the constructor
@@ -26,6 +27,13 @@ class FlowerClient(NumPyClient):
         self.epoch_accuracy = {}
         self.scales = None
         self.min_vals = None
+        # 添加时间统计字典
+        self.time_stats = {
+            'train': [],
+            'encrypt': [],
+            'decrypt': [],
+            'evaluate': []
+        }
 
     def get_parameters(self, config):
         return get_parameters(self.net)
@@ -33,57 +41,82 @@ class FlowerClient(NumPyClient):
     def fit(self, parameters, config):
         
         set_parameters(self.net, parameters)
-        train(self.net, self.trainloader, epochs=config["local_epochs"], verbose = False)
+        
+      
+        train_start = time.time()
+        train(self.net, self.trainloader, epochs=config["local_epochs"], verbose=False)
+        train_time = time.time() - train_start
+        self.time_stats['train'].append(train_time)
+        
         updated_params = self.net.state_dict()
 
-        # # Flatten the parameters and get the max and min values
-        # flattened_params = []
-        # for param in updated_params.values():
-        #     flattened_params.extend(param.cpu().numpy().flatten().tolist())
-        # local_max = max(flattened_params)
-        # local_min = min(flattened_params)
-    
-        # # Get the global max and min values
-        # global_max = config.get("global_max")
-        # global_min = config.get("global_min")
-
-        # # Get the quantization parameters
-        # quant_max = global_max if (global_max is not None and global_min is not None) else local_max
-        # quant_min = global_min if (global_max is not None and global_min is not None) else local_min
-
-        # # Quantize the weights
-        # quantized_params, scale, zero_point = quantize_weights(flattened_params, Quantization_Bits, quant_max, quant_min)
-        
+      
         if Enc_needed.encryption_needed.value == 1:
+            # 统计加密时间
+            encrypt_start = time.time()
             _, serialized_dataspace, self.scales, self.min_vals = param_encrypt(updated_params, self.pid)
+            encrypt_time = time.time() - encrypt_start
+            self.time_stats['encrypt'].append(encrypt_time)
+            
             self.serialized_dataspace_log.append(serialized_dataspace)
                   
         return get_parameters(self.net), len(self.trainloader), {"pid": self.pid}
 
     def evaluate(self, parameters, config):        
         server_round = config["server_round"]
+    
         if Enc_needed.encryption_needed.value == 1:
-            params_decrypted = param_decrypt(f"encrypted/aggregated_data_encrypted_{server_round}.txt", self.scales, self.min_vals)
+           
+            decrypt_start = time.time()
+            params_decrypted = param_decrypt(f"encrypted/aggregated_data_encrypted_{server_round}.txt", 
+                                          self.scales, self.min_vals)
+            decrypt_time = time.time() - decrypt_start
+            self.time_stats['decrypt'].append(decrypt_time)
+            
             reshaped_params = []
             shapes = [np.shape(arr) for arr in parameters]
             current_index = 0
+            
             for shape in shapes:
-                size = np.prod(shape)
-                reshaped_arr = np.reshape(params_decrypted[current_index:current_index + size], shape)
+              
+                size = int(np.prod(shape))
+                
+             
+                start_idx = int(current_index)
+                end_idx = int(current_index + size)
+                
+               
+                if end_idx > len(params_decrypted):
+                    raise ValueError(f"Index out of range: trying to access index {end_idx} but array length is {len(params_decrypted)}")
+                
+             
+                chunk = params_decrypted[start_idx:end_idx]
+                reshaped_arr = np.array(chunk).reshape(shape)
                 reshaped_params.append(reshaped_arr)
+                
                 current_index += size
 
             set_parameters(self.net, reshaped_params)
+            
+            # 统计评估时间
+            eval_start = time.time()
             loss, accuracy = test(self.net, self.valloader)
+            eval_time = time.time() - eval_start
+            self.time_stats['evaluate'].append(eval_time)
+            
             self.epoch_accuracy[server_round] = accuracy
             
             if server_round == config.get("total_rounds"):
                 self.on_train_end()
+                self._save_time_stats()  
             return loss, len(self.valloader), {"accuracy": float(accuracy)}
         
         set_parameters(self.net, parameters)
         loss, accuracy = test(self.net, self.valloader)
         self.epoch_accuracy[server_round] = accuracy            
+        if server_round == config.get("total_rounds"):
+            self.on_train_end()
+            self._save_time_stats()  
         return loss, len(self.valloader), {"accuracy": float(accuracy)}
     
     def _reshape_parameters(self, parameters, decrypted_data):
@@ -109,9 +142,9 @@ class FlowerClient(NumPyClient):
         for rnd, acc in sorted(self.epoch_accuracy.items()):
             print(f" Round {rnd}: {acc:.4f}")
         
-        self._save_to_csv()
+        self._save_accuracy_csv()
     
-    def _save_to_csv(self):
+    def _save_accuracy_csv(self):
         """Save the accuracy log to a CSV file."""
         csv_path = f"client_{self.pid}_accuracy.csv"
         try:
@@ -123,6 +156,19 @@ class FlowerClient(NumPyClient):
         except Exception as e:
             print(f"Error saving accuracy log: {str(e)}")
     
+    def _save_time_stats(self):
+        """保存时间统计到CSV文件"""
+        stats_path = f"client_{self.pid}_time_stats.csv"
+        try:
+            with open(stats_path, "w") as f:
+                f.write("operation,round,time\n")
+                for operation, times in self.time_stats.items():
+                    for round_num, t in enumerate(times, 1):
+                        f.write(f"{operation},{round_num},{t}\n")
+            print(f"Time statistics saved to {stats_path}")
+        except Exception as e:
+            print(f"Error saving time statistics: {str(e)}")
+
 def client_fn(context) -> Client:
     """Create a Flower client representing a single organization."""
     BATCH_SIZE = context.node_config.get("batch_size")
@@ -130,7 +176,7 @@ def client_fn(context) -> Client:
     MODEL_NAME = context.node_config.get("model")
     DATASET_NAME = context.node_config.get("dataset")
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
+    print("THE DEVICE IS", DEVICE)
     
     net = MODEL_MAP[MODEL_NAME]().to(DEVICE)
     partition_id = context.node_config["partition-id"]
@@ -161,34 +207,51 @@ def create_client_fn(batch_size, num_supernodes, model_name, dataset_name):
     client_app = ClientApp(client_fn=client_creation_func)
     return client_app
 
+# 在启动客户端之前，读取服务器地址
+def get_server_address():
+    with open("server_address.txt", "r") as f:
+        return f.read().strip()
 
 if __name__ == "__main__":
-    
     """Create a Flower client representing a single organization."""
     BATCH_SIZE = 32
-    DATASET_NAME = "fashionmnist"
- 
+    DATASET_NAME = "cifar10"
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    net = MODEL_MAP['LeNet5']().to(DEVICE)
+    net = MODEL_MAP['ResNet18']().to(DEVICE)
     parser = argparse.ArgumentParser(description="Flower Client")
     parser.add_argument("--partition-id", type=int, default=0, help="Partition ID")
-    parser.add_argument("--CLIENT_NUMER", type=int, default=5, help="Number of clients")
+    parser.add_argument("--CLIENT_NUMER", type=int, default=10, help="Number of clients")
     
     args = parser.parse_args()
     partition_id = args.partition_id
     CLIENT_NUMER = args.CLIENT_NUMER
-    trainloader, valloader, _ = load_datasets(DATASET_NAME, 
-                                            CLIENT_NUMER, 
-                                            BATCH_SIZE,
-                                            partition_id=partition_id,
-                                            federated=True
-                                            )
-
-
+    
+    # 加载数据集
+    trainloader, valloader, _ = load_datasets(
+        DATASET_NAME, 
+        CLIENT_NUMER, 
+        BATCH_SIZE,
+        partition_id=partition_id,
+        federated=True
+    )
+    
+    # 获取服务器地址
+    server_address = get_server_address()
+    print(f"Connecting to server at {server_address}")
+    
+    # 创建客户端实例，提供所有必需的参数
+    client = FlowerClient(
+        pid=partition_id,
+        net=net,
+        trainloader=trainloader,
+        valloader=valloader
+    )
+    
+    # 启动客户端
     fl.client.start_numpy_client(
-        server_address="localhost:8080",
-        client=FlowerClient(partition_id, net, trainloader, valloader),
+        server_address=server_address,
+        client=client,
         grpc_max_message_length=1024*1024*1024
     )
     

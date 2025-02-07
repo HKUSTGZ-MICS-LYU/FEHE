@@ -8,6 +8,7 @@ import sys
 from Quantization import quantize_weights, dequantize_weights
 
 
+Quantization_Bits = 20
 
 #This block decides if the Federated Learning setup undergoes encryption and decryption during communication
 class Enc_needed(Enum):
@@ -53,17 +54,30 @@ def param_encrypt(param_list, clientID: str):
     public_key_context = ts.context_from(fd.read_data("encrypted/public_key.txt")[0])    
     
     flattened_params = []
-
     for param_name, param_tensor in param_list.items():
         flat_tensor = param_tensor.flatten()
         for val in flat_tensor:
             flattened_params.append(val.item())
-   
-    flattened_params, scales, min_vals = quantize_weights(flattened_params, 8, 1, -1)
+    
+
+    # Write unencrypted params into a file
+    # with open(f"encrypted/unencrypt_params_{clientID}.txt", 'w') as f:
+    #     for param in flattened_params:
+    #         f.write(f"{param}\n")
+    # f.close()
+    
+    flattened_params, scales, min_vals = quantize_weights(flattened_params, Quantization_Bits, max(flattened_params), min(flattened_params))
+    
+    # Write quantized weights to file
+    # with open(f"encrypted/quantized_params_{clientID}.txt", 'w') as f:
+    #     for param in flattened_params:
+    #         f.write(f"{param}\n")
+    # f.close()
      
     # Splitting the data into slices of 8192 elements
     chunk_size = 4096
-    num_chunks = (len(flattened_params) + chunk_size - 1) // chunk_size  # 向上取整
+    num_chunks = (len(flattened_params) + chunk_size - 1) // chunk_size  
+
     chunked_params = []
     for i in range(num_chunks):
         start_idx = i * chunk_size
@@ -101,14 +115,17 @@ def param_decrypt(encrypted_weight_pth, scales, min_vals):                      
         ct.link_context(secret_context)
         decrypted_chunk = ct.decrypt()
         decrypted_params.extend(decrypted_chunk)
-        
-    decrypted_params = [decrypted_params[i] / 10 for i in range(len(decrypted_params))]    
+    
+
+    
+    decrypted_params = [decrypted_params[i] / 1 for i in range(len(decrypted_params))]    
   
     decrypted_params = dequantize_weights(decrypted_params, scales, min_vals)
     
-    with open("decrypted.txt", 'w') as f:
-        for item in decrypted_params:
-            f.write("%s\n" % item)
-    f.close()
+    # Write decrypted parameters to a file
+    # with open("encrypted/decrypted.txt", "w") as f:
+    #     for param in decrypted_params:
+    #         f.write(f"{param}\n")
+    # f.close()
 
     return decrypted_params

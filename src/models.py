@@ -27,11 +27,35 @@ class Net(nn.Module):
 class ResNet18(nn.Module):
     def __init__(self, num_classes=10):
         super(ResNet18, self).__init__()
+        
+        # 1. Load the pretrained ResNet-18 model
         self.model = models.resnet18(pretrained=False)
-        self.model.fc = nn.Linear(self.model.fc.in_features, num_classes)
+        
+        # 2. Change the output layer to have the number of classes in our dataset
+        input_features = self.model.fc.in_features
+        self.model.fc = nn.Sequential(
+            nn.BatchNorm1d(input_features),
+            nn.Dropout(0.5),
+            nn.Linear(input_features, num_classes)
+        )
+        
+        # 3. Initialize the new layer
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, 0, 0.01)
+                nn.init.constant_(m.bias, 0)
 
     def forward(self, x):
         return self.model(x)
+
 
 # Used for cifar10
 class AlexNet(nn.Module):

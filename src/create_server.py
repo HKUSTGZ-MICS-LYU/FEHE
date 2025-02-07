@@ -7,6 +7,8 @@ import numpy as np
 from encryption import Enc_needed
 import filedata as fd
 import tenseal as ts
+import socket
+import time
 
 
 
@@ -15,7 +17,7 @@ import tenseal as ts
 def fit_config(server_round: int):
     config = {
         "server_round": server_round,
-        "local_epochs": 10,  
+        "local_epochs": 1,  
     }
     return config
 
@@ -33,10 +35,9 @@ class MyFlowerStrategy(FedAvg):
     """A custom Flower strategy extending FedAvg."""
     def __init__(
         self,
-        num_rounds: int,
         fraction_fit: float = 1.0,
-        fraction_evaluate: float = 0.5,
-        min_fit_clients: int = 5,
+        fraction_evaluate: float = 1.0,
+        min_fit_clients: int = 3,
         min_evaluate_clients: int = 3,
         min_available_clients: int = 5,
         on_fit_config_fn=None,
@@ -52,12 +53,10 @@ class MyFlowerStrategy(FedAvg):
             on_fit_config_fn=on_fit_config_fn,
             on_evaluate_config_fn=on_evaluate_config_fn,
         )
-        
-        # A variable to keep track of total communication (file size) across rounds
-        self.global_min = None
+        self.aggregation_times = []
         self.global_max = None
         self.total_comm_bytes = 0
-        self.num_rounds = num_rounds
+        self.num_rounds = None
         self.aggregated_path = None
     
     def aggregate_fit(self, server_round: int, results, failures):
@@ -86,6 +85,7 @@ class MyFlowerStrategy(FedAvg):
                 encrypted_proto_list = fd.read_data(f"encrypted/data_encrypted_{pid}.txt")
                 client_weights = []
                 
+ 
                 for encrypted_proto in encrypted_proto_list:
                     encrypted_params = ts.lazy_bfv_vector_from(encrypted_proto)
                     encrypted_params.link_context(public_key_context)
@@ -97,11 +97,6 @@ class MyFlowerStrategy(FedAvg):
                     for i in range(len(client_weights)):
                         aggregated_weights[i] += client_weights[i]
                         
-            # # Average the weights
-            # for i in range(len(aggregated_weights)):
-            #     aggregated_weights[i] *= 1 / len(results)
-            
-            
             # Write out aggregated file
             aggregated_file_path = f"encrypted/aggregated_data_encrypted_{server_round}.txt"
             serialized_weights = [param.serialize() for param in aggregated_weights]
@@ -119,9 +114,6 @@ class MyFlowerStrategy(FedAvg):
             aggregated_parameters = super().aggregate_fit(server_round, results, failures)
         return aggregated_parameters
 
-
-    # # Alternatively, if your Flower version doesn't have on_conclude,
-    # # you can do something like this:
     def aggregate_evaluate(self, server_round, results, failures):
         """
         Called after evaluation. If it's the last round, we can print out the total comm.
@@ -137,7 +129,21 @@ class MyFlowerStrategy(FedAvg):
             with open("total_communication.csv", "w") as f:
                 f.write(f"Total communication (GB),{total_comm_bytes_str}")
             f.close()
+            # 保存聚合时间统计
+            self._save_time_stats()
         return aggregated_metrics
+
+    def _save_time_stats(self):
+        """保存服务器端的时间统计"""
+        stats_path = "server_time_stats.csv"
+        try:
+            with open(stats_path, "w") as f:
+                f.write("operation,round,time\n")
+                for round_num, t in enumerate(self.aggregation_times, 1):
+                    f.write(f"aggregation,{round_num},{t}\n")
+            print(f"Server time statistics saved to {stats_path}")
+        except Exception as e:
+            print(f"Error saving server time statistics: {str(e)}")
 
 def create_server_fn(num_rounds, min_fit_clients, min_evaluate_clients, min_available_clients) -> ServerApp:
     """
@@ -146,7 +152,8 @@ def create_server_fn(num_rounds, min_fit_clients, min_evaluate_clients, min_avai
     def server_fn(context: Context, **kwargs) -> ServerAppComponents:
         config = ServerConfig(num_rounds=num_rounds)
         strategy = MyFlowerStrategy(
-            num_rounds=num_rounds,
+            fraction_fit=min_fit_clients/num_rounds,
+            fraction_evaluate=min_evaluate_clients/num_rounds,
             min_fit_clients=min_fit_clients,
             min_evaluate_clients=min_evaluate_clients,
             min_available_clients=min_available_clients,
@@ -159,17 +166,33 @@ def create_server_fn(num_rounds, min_fit_clients, min_evaluate_clients, min_avai
     return ServerApp(server_fn=server_fn)
 
 if __name__ == "__main__":
-    NUM_ROUNDS = 10
+    NUM_ROUNDS = 5
+    NUM_CLIENTS = 1
+    MIN_CLIENTS = 1
+    
+    # 使用完整的主机名
+    hostname = socket.gethostname()
+    SERVER_ADDRESS = f"{hostname}:8080"
+    print(f"Server will listen on {SERVER_ADDRESS}")
+    
     my_strategy = MyFlowerStrategy(
-        num_rounds=NUM_ROUNDS,
-        min_fit_clients=10,
-        min_evaluate_clients=10,
-        min_available_clients=10,
+        fraction_fit=MIN_CLIENTS/NUM_CLIENTS,  # 精确控制选择40个客户端 (40/200 = 0.2)
+        fraction_evaluate=MIN_CLIENTS/NUM_CLIENTS,  
+        min_fit_clients=MIN_CLIENTS,      # 需要正好40个客户端
+        min_evaluate_clients=MIN_CLIENTS,  
+        min_available_clients=MIN_CLIENTS, # 至少要有40个客户端在线
         on_fit_config_fn=fit_config,
         on_evaluate_config_fn=evaluate_config_factory(NUM_ROUNDS)
     )
+    
+  
+    # 保存完整的服务器地址
+    with open("server_address.txt", "w") as f:
+        f.write(SERVER_ADDRESS)
+    
+    # 启动服务器时使用完整地址
     fl.server.start_server(
-        server_address = "localhost:8080",
+        server_address = SERVER_ADDRESS,  # 使用相同的地址
         config = fl.server.ServerConfig(num_rounds=NUM_ROUNDS),
         grpc_max_message_length = 1024 * 1024 * 1024,
         strategy = my_strategy,
