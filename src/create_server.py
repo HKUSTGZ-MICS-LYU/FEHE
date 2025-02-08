@@ -17,7 +17,7 @@ import time
 def fit_config(server_round: int):
     config = {
         "server_round": server_round,
-        "local_epochs": 1,  
+        "local_epochs": 3,  
     }
     return config
 
@@ -176,11 +176,11 @@ if __name__ == "__main__":
     print(f"Server will listen on {SERVER_ADDRESS}")
     
     my_strategy = MyFlowerStrategy(
-        fraction_fit=MIN_CLIENTS/NUM_CLIENTS,  # 精确控制选择40个客户端 (40/200 = 0.2)
+        fraction_fit=MIN_CLIENTS/NUM_CLIENTS,  
         fraction_evaluate=MIN_CLIENTS/NUM_CLIENTS,  
-        min_fit_clients=MIN_CLIENTS,      # 需要正好40个客户端
+        min_fit_clients=MIN_CLIENTS,      
         min_evaluate_clients=MIN_CLIENTS,  
-        min_available_clients=MIN_CLIENTS, # 至少要有40个客户端在线
+        min_available_clients=MIN_CLIENTS, 
         on_fit_config_fn=fit_config,
         on_evaluate_config_fn=evaluate_config_factory(NUM_ROUNDS)
     )

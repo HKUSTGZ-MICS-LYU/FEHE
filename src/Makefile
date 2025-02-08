@@ -4,7 +4,7 @@ BSUB = bsub -q gpu -Is -gpu "num=1"
 SERVER_SCRIPT = create_server.py
 CLIENT_SCRIPT = create_client.py
 SRC_DIR = encrypted
-NUM_CLIENTS = 1  # 总客户端数量
+NUM_CLIENTS = 1
 
 # 默认目标
 all: 
@@ -35,6 +35,8 @@ clients:
 clean:
 	rm -rf $(SRC_DIR)/*
 	rm -f server_address.txt
+	rm -rf *.png
+	rm -rf *.csv
 
 # 声明伪目标
 .PHONY: server client clients clean plot

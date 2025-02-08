@@ -8,7 +8,7 @@ import sys
 from Quantization import quantize_weights, dequantize_weights
 
 
-Quantization_Bits = 20
+Quantization_Bits = 24
 
 #This block decides if the Federated Learning setup undergoes encryption and decryption during communication
 class Enc_needed(Enum):
@@ -61,18 +61,18 @@ def param_encrypt(param_list, clientID: str):
     
 
     # Write unencrypted params into a file
-    # with open(f"encrypted/unencrypt_params_{clientID}.txt", 'w') as f:
-    #     for param in flattened_params:
-    #         f.write(f"{param}\n")
-    # f.close()
+    with open(f"encrypted/unencrypt_params_{clientID}.txt", 'w') as f:
+        for param in flattened_params:
+            f.write(f"{param}\n")
+    f.close()
     
     flattened_params, scales, min_vals = quantize_weights(flattened_params, Quantization_Bits, max(flattened_params), min(flattened_params))
     
     # Write quantized weights to file
-    # with open(f"encrypted/quantized_params_{clientID}.txt", 'w') as f:
-    #     for param in flattened_params:
-    #         f.write(f"{param}\n")
-    # f.close()
+    with open(f"encrypted/quantized_params_{clientID}.txt", 'w') as f:
+        for param in flattened_params:
+            f.write(f"{param}\n")
+    f.close()
      
     # Splitting the data into slices of 8192 elements
     chunk_size = 4096
@@ -118,14 +118,14 @@ def param_decrypt(encrypted_weight_pth, scales, min_vals):                      
     
 
     
-    decrypted_params = [decrypted_params[i] / 1 for i in range(len(decrypted_params))]    
+    decrypted_params = [decrypted_params[i] / 4 for i in range(len(decrypted_params))]    
   
     decrypted_params = dequantize_weights(decrypted_params, scales, min_vals)
     
     # Write decrypted parameters to a file
-    # with open("encrypted/decrypted.txt", "w") as f:
-    #     for param in decrypted_params:
-    #         f.write(f"{param}\n")
-    # f.close()
+    with open("encrypted/decrypted.txt", "w") as f:
+        for param in decrypted_params:
+            f.write(f"{param}\n")
+    f.close()
 
     return decrypted_params
