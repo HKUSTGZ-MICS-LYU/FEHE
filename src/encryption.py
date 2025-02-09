@@ -5,16 +5,16 @@ import filedata as fd
 import numpy as np
 from enum import Enum
 import sys
-from Quantization import quantize_weights, dequantize_weights
+from Quantization import *
 
 
-Quantization_Bits = 24
+Quantization_Bits = 8
 
 #This block decides if the Federated Learning setup undergoes encryption and decryption during communication
 class Enc_needed(Enum):
     # If encryption_needed is 0, then FL without FHE
     # If encryption_needed is 1, then FL with FHE
-    encryption_needed = 1
+    encryption_needed = 0
         
  
         
@@ -66,7 +66,8 @@ def param_encrypt(param_list, clientID: str):
             f.write(f"{param}\n")
     f.close()
     
-    flattened_params, scales, min_vals = quantize_weights(flattened_params, Quantization_Bits, max(flattened_params), min(flattened_params))
+    quantizer = Quantizer()
+    flattened_params, params = quantizer.quantize_weights_unified(flattened_params, Quantization_Bits, "block", block_size=16)
     
     # Write quantized weights to file
     with open(f"encrypted/quantized_params_{clientID}.txt", 'w') as f:
@@ -99,9 +100,9 @@ def param_encrypt(param_list, clientID: str):
         
     serialized_dataspace = sys.getsizeof(encrypted_params)/(1024*1024)
     
-    return  None, serialized_dataspace, scales, min_vals
+    return  None, serialized_dataspace, params
 
-def param_decrypt(encrypted_weight_pth, scales, min_vals):                                        #Function to implement decryption
+def param_decrypt(encrypted_weight_pth, params):                                        #Function to implement decryption
     
     #Loading secret key to decrypted the encrypted data
     secret_context = ts.context_from(fd.read_data('encrypted/secret_key.txt')[0])
@@ -117,10 +118,10 @@ def param_decrypt(encrypted_weight_pth, scales, min_vals):                      
         decrypted_params.extend(decrypted_chunk)
     
 
-    
-    decrypted_params = [decrypted_params[i] / 4 for i in range(len(decrypted_params))]    
+    decrypted_params = [decrypted_params[i] / 1 for i in range(len(decrypted_params))]    
   
-    decrypted_params = dequantize_weights(decrypted_params, scales, min_vals)
+    quantizer = Quantizer()
+    decrypted_params = quantizer.dequantize_weights_unified(decrypted_params, params)
     
     # Write decrypted parameters to a file
     with open("encrypted/decrypted.txt", "w") as f:

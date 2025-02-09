@@ -10,7 +10,7 @@ from utils import get_parameters, set_parameters
 from train import train
 from test import test
 from dataloader import load_datasets
-from Quantization import quantize_weights, dequantize_weights
+from Quantization import *
 import time
 
  
@@ -25,8 +25,7 @@ class FlowerClient(NumPyClient):
         self.valloader = valloader
         self.serialized_dataspace_log = []
         self.epoch_accuracy = {}
-        self.scales = None
-        self.min_vals = None
+        self.quant_params = None
         # 添加时间统计字典
         self.time_stats = {
             'train': [],
@@ -44,7 +43,7 @@ class FlowerClient(NumPyClient):
         
       
         train_start = time.time()
-        train(self.net, self.trainloader, epochs=config["local_epochs"], verbose=False)
+        train(self.net, self.trainloader, epochs=config["local_epochs"], verbose=True)
         train_time = time.time() - train_start
         self.time_stats['train'].append(train_time)
         
@@ -54,7 +53,7 @@ class FlowerClient(NumPyClient):
         if Enc_needed.encryption_needed.value == 1:
             # 统计加密时间
             encrypt_start = time.time()
-            _, serialized_dataspace, self.scales, self.min_vals = param_encrypt(updated_params, self.pid)
+            _, serialized_dataspace, self.quant_params = param_encrypt(updated_params, self.pid)
             encrypt_time = time.time() - encrypt_start
             self.time_stats['encrypt'].append(encrypt_time)
             
@@ -68,8 +67,7 @@ class FlowerClient(NumPyClient):
         if Enc_needed.encryption_needed.value == 1:
            
             decrypt_start = time.time()
-            params_decrypted = param_decrypt(f"encrypted/aggregated_data_encrypted_{server_round}.txt", 
-                                          self.scales, self.min_vals)
+            params_decrypted = param_decrypt(f"encrypted/aggregated_data_encrypted_{server_round}.txt", self.quant_params)
             decrypt_time = time.time() - decrypt_start
             self.time_stats['decrypt'].append(decrypt_time)
             

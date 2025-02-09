@@ -1,11 +1,11 @@
 import torch
 
 
-def train(net, trainloader, epochs: int, verbose=False):
+def train(net, trainloader, epochs: int, verbose=True):
     """Train the network on the training set."""
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     criterion = torch.nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(net.parameters())
+    optimizer = torch.optim.Adam(net.parameters(), lr=0.0001, weight_decay=1e-4)
     net.train()
     for epoch in range(epochs):
         correct, total, epoch_loss = 0, 0, 0.0

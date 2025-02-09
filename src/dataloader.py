@@ -37,12 +37,9 @@ def load_datasets(
             # Divide the partition into train and test sets (80% train, 20% test)
             partition_train_test = partition.train_test_split(test_size=0.2, seed=42)
             pytorch_transform = transforms.Compose([
-                # transforms.Resize((224, 224)),
-                transforms.ToTensor(), 
-                transforms.Normalize(
-                    mean=(0.5, 0.5, 0.5), 
-                    std=(0.5, 0.5, 0.5)
-                )
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.4914, 0.4822, 0.4465], 
+                                     std=[0.2023, 0.1994, 0.2010]),
             ])
             def apply_transforms(batch):
                 batch["img"] = [pytorch_transform(img) for img in batch["img"]]
@@ -64,12 +61,10 @@ def load_datasets(
             # Divide the partition into train and test sets (80% train, 20% test)
             partition_train_test = partition.train_test_split(test_size=0.2, seed=42)
             pytorch_transform = transforms.Compose([
-                transforms.Resize((224, 224)),
-                transforms.ToTensor(), 
-                transforms.Normalize(
-                    mean=(0.5, 0.5, 0.5), 
-                    std=(0.5, 0.5, 0.5)
-                )
+                transforms.Resize((32, 32)),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.4914, 0.4822, 0.4465],
+                                  std=[0.2023, 0.1994, 0.2010])
             ])
             def apply_transforms(batch):
                 batch["img"] = [pytorch_transform(img) for img in batch["img"]]

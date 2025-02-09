@@ -17,7 +17,7 @@ import time
 def fit_config(server_round: int):
     config = {
         "server_round": server_round,
-        "local_epochs": 3,  
+        "local_epochs": 1,  
     }
     return config
 
@@ -166,7 +166,7 @@ def create_server_fn(num_rounds, min_fit_clients, min_evaluate_clients, min_avai
     return ServerApp(server_fn=server_fn)
 
 if __name__ == "__main__":
-    NUM_ROUNDS = 5
+    NUM_ROUNDS = 100
     NUM_CLIENTS = 1
     MIN_CLIENTS = 1
     
@@ -185,7 +185,6 @@ if __name__ == "__main__":
         on_evaluate_config_fn=evaluate_config_factory(NUM_ROUNDS)
     )
     
-  
     # 保存完整的服务器地址
     with open("server_address.txt", "w") as f:
         f.write(SERVER_ADDRESS)

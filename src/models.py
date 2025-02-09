@@ -29,7 +29,7 @@ class ResNet18(nn.Module):
         super(ResNet18, self).__init__()
         
         # 1. Load the pretrained ResNet-18 model
-        self.model = models.resnet18(pretrained=False)
+        self.model = models.resnet18(pretrained=True)
         
         # 2. Change the output layer to have the number of classes in our dataset
         input_features = self.model.fc.in_features
@@ -45,12 +45,15 @@ class ResNet18(nn.Module):
     def _initialize_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
+                # Kaiming initialization for Conv2d layers
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-            elif isinstance(m, nn.BatchNorm2d):
+            elif isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.BatchNorm1d):
+                # Initialize BatchNorm weights to 1 and biases to 0
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.Linear):
-                nn.init.normal_(m.weight, 0, 0.01)
+                # Kaiming initialization for Linear layers
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 nn.init.constant_(m.bias, 0)
 
     def forward(self, x):
