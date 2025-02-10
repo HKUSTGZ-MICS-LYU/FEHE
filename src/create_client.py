@@ -8,7 +8,7 @@ from encryption import Enc_needed, param_decrypt, param_encrypt
 from globals import MODEL_MAP
 from utils import get_parameters, set_parameters
 from train import train
-from test import test
+from grad import test
 from dataloader import load_datasets
 from Quantization import *
 import time
