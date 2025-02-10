@@ -2,53 +2,30 @@ import numpy as np
 from sympy import nextprime
 import tenseal as ts
 from src.Quantization import Quantizer
+import sys
 import matplotlib.pyplot as plt
 
-# Read data from file /hpc/home/connect.xmeng027/Work/FEHE/src/encrypted/unencrypt_params_0.txt
-file_path = "/hpc/home/connect.xmeng027/Work/FEHE/src/encrypted/unencrypt_params_0.txt"
+
+file_path = "src/encrypted/unencrypt_params_0.txt"
 data = []
 with open(file_path, 'r') as f:
     for line in f:
         data.append(float(line.strip()))
     f.close()
-
+print("============SIGMA QUANTIZATION============")
 # Choose quantization method: e.g., 'naive', 'truncate', 'layerwise', 'log', 'dynamic', 'symmetric', 'asymmetric', 'block'
 quant_method = 'sigma'
 q_bit = 8
 quantizer = Quantizer()
-qw, params = quantizer.quantize_weights_unified(data, q_bit, method=quant_method, sigma_bits = [16,16,16,16])
+qw, params = quantizer.quantize_weights_unified(data, q_bit, method=quant_method, sigma_bits = [14,14,14,14])
 
-# Set BFV encryption parameters
-poly_modulus_degree = 4096
-plain_modulus = nextprime(2**16)
-context = ts.context(ts.SCHEME_TYPE.BFV, poly_modulus_degree, plain_modulus)
-context.generate_galois_keys()
-public_key = context.public_key()
-secret_key = context.secret_key()
-
-# Encrypt the each region of the quantized weights
-encrypted_params = []
-print(len(qw))
-for region_data in qw:
-    chunks = [region_data[i:i+poly_modulus_degree] for i in range(0, len(region_data), poly_modulus_degree)]
-    encrypted_chunks = [ts.bfv_vector(context, chunk.tolist()) for chunk in chunks]
-    encrypted_params.append(encrypted_chunks)
-    
-# Decrypt the encrypted parameters
-decrypted_params = []
-for region in encrypted_params:
-    decrypted_chunks = [chunk.decrypt(secret_key) for chunk in region]
-    decrypted_region = np.concatenate(decrypted_chunks)
-    decrypted_params.append(decrypted_region)
-    
+if hasattr(qw, 'nbytes'):  # 如果是numpy数组
+    size_bytes = qw.nbytes
+else:  # 如果是列表或其他类型
+    size_bytes = sys.getsizeof(qw)
+print(f"Size of qw: {size_bytes} bytes ({size_bytes/1024:.2f} KB)")
 # Dequantize the decrypted parameters
-dequantized_params = quantizer.dequantize_weights_unified(decrypted_params, params)
-
-with open("/hpc/home/connect.xmeng027/Work/FEHE/src/encrypted/q_decrypted_params_0.txt", 'w') as f:
-    for param in dequantized_params:
-        f.write(f"{param}\n")
-f.close()
-
+dequantized_params = quantizer.dequantize_weights_unified(qw, params)
 
 # Compare dequantized data with original data
 mse_data = np.mean((np.array(data) - dequantized_params)**2)
@@ -57,6 +34,33 @@ mae_data = np.mean(np.abs(np.array(data) - dequantized_params))
 print(f"MAE (original vs dequantized): {mae_data}")
 print("Original data (first 10):", data[:10])
 print("Dequantized data (first 10):", dequantized_params[:10])
+
+# print('\n')
+# print("============BLOCK QUANTIZATION============")
+# # Use block method to quantize the data
+# quantizer = Quantizer()
+
+# quantized_data, params = quantizer.quantize_weights_unified(data, 12, 'block', block_size=32)
+# if hasattr(quantized_data, 'nbytes'):  # 如果是numpy数组
+#     size_bytes = quantized_data.nbytes
+# else:  # 如果是列表或其他类型
+#     size_bytes = sys.getsizeof(quantized_data)
+# print(f"Size of quantized_data: {size_bytes} bytes ({size_bytes/1024:.2f} KB)")
+# # Dequantize the data
+# dequantized_params = quantizer.dequantize_weights_unified(quantized_data, params)
+
+
+# # Compare dequantized data with original data
+# mse_data = np.mean((np.array(data) - dequantized_params)**2)
+# print(f"MSE (original vs dequantized): {mse_data}")
+# mae_data = np.mean(np.abs(np.array(data) - dequantized_params))
+# print(f"MAE (original vs dequantized): {mae_data}")
+# print("Original data (first 10):", data[:10])
+# print("Dequantized data (first 10):", dequantized_params[:10])
+
+
+    
+
 
 # # Create a more comprehensive visualization
 # plt.figure(figsize=(15, 10))

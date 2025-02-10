@@ -14,7 +14,7 @@ Quantization_Bits = 8
 class Enc_needed(Enum):
     # If encryption_needed is 0, then FL without FHE
     # If encryption_needed is 1, then FL with FHE
-    encryption_needed = 0
+    encryption_needed = 1
         
  
         

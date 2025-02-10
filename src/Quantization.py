@@ -195,12 +195,16 @@ class Quantizer:
         data = np.array(data)
         mu = np.mean(data)
         sigma = np.std(data)
-        masks = [
-            (np.abs(data-mu) > 3*sigma),
-            (np.abs(data-mu) > 2*sigma) & (np.abs(data-mu) <= 3*sigma),
-            (np.abs(data-mu) > 1*sigma) & (np.abs(data-mu) <= 2*sigma),
-            (np.abs(data-mu) <= 1*sigma)
-        ]
+        n = len(sigma_bits)
+        masks = []
+        # Define masks for each region
+        masks.append(np.abs(data - mu) > (n - 1) * sigma)   
+        for i in range(1, n - 1):
+            lower = (n - 1 - i) * sigma
+            upper = (n - i) * sigma
+            masks.append((np.abs(data - mu) > lower) & (np.abs(data - mu) <= upper))
+        masks.append(np.abs(data - mu) <= sigma)
+     
         quantized_parts = []
         scales = []
         min_vals = []
