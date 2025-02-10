@@ -29,6 +29,6 @@ def train(net, trainloader, epochs: int, verbose=True):
         epoch_loss /= len(trainloader)
         epoch_acc = correct / total
         if verbose:
-            print(f"Epoch {epoch+1}: train loss {epoch_loss}, accuracy {epoch_acc}")
+            print(f"Train loss {epoch_loss}, accuracy {epoch_acc}")
 
 

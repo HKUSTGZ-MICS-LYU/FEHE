@@ -18,6 +18,8 @@ def fit_config(server_round: int):
     config = {
         "server_round": server_round,
         "local_epochs": 1,  
+        "global_max": my_strategy.global_max,
+        "global_min": my_strategy.global_min
     }
     return config
 
@@ -42,6 +44,7 @@ class MyFlowerStrategy(FedAvg):
         min_available_clients: int = 5,
         on_fit_config_fn=None,
         on_evaluate_config_fn=None,
+        num_rounds: int = 1,
     ) -> None:
         """A custom Flower strategy extending FedAvg."""
         super().__init__(
@@ -56,8 +59,10 @@ class MyFlowerStrategy(FedAvg):
         self.aggregation_times = []
         self.global_max = None
         self.total_comm_bytes = 0
-        self.num_rounds = None
+        self.num_rounds = num_rounds
         self.aggregated_path = None
+        self.global_max = None
+        self.global_min = None
     
     def aggregate_fit(self, server_round: int, results, failures):
         """
@@ -71,9 +76,14 @@ class MyFlowerStrategy(FedAvg):
             return None
         
         # Load public key to perform computations on encrypted data
-        if Enc_needed.encryption_needed.value == 1:  # Full encryption is selected
+        if Enc_needed.encryption_needed.value == 1: 
+            all_local_max = [result.metrics.get("local_max") for _, result in results]
+            all_local_min = [result.metrics.get("local_min") for _, result in results]
+            self.global_max = max(all_local_max)
+            self.global_min = min(all_local_min)
             public_key_context = ts.context_from(fd.read_data("encrypted/public_key.txt")[0])
             aggregated_weights = None
+            start_time = time.time()
             
             for client, weights in results:
                 pid = weights.metrics.get("pid")
@@ -96,7 +106,8 @@ class MyFlowerStrategy(FedAvg):
                 else:
                     for i in range(len(client_weights)):
                         aggregated_weights[i] += client_weights[i]
-                        
+            aggregation_time = time.time() - start_time
+            self.aggregation_times.append(aggregation_time)
             # Write out aggregated file
             aggregated_file_path = f"encrypted/aggregated_data_encrypted_{server_round}.txt"
             serialized_weights = [param.serialize() for param in aggregated_weights]
@@ -119,6 +130,7 @@ class MyFlowerStrategy(FedAvg):
         Called after evaluation. If it's the last round, we can print out the total comm.
         """
         aggregated_metrics = super().aggregate_evaluate(server_round, results, failures)
+        
         # If we just finished the final round
         if server_round == self.num_rounds:
             print(f"[aggregate_evaluate] All {self.num_rounds} rounds completed.")
@@ -158,7 +170,8 @@ def create_server_fn(num_rounds, min_fit_clients, min_evaluate_clients, min_avai
             min_evaluate_clients=min_evaluate_clients,
             min_available_clients=min_available_clients,
             on_fit_config_fn=fit_config,
-            on_evaluate_config_fn=evaluate_config_factory(num_rounds)
+            on_evaluate_config_fn=evaluate_config_factory(num_rounds),
+            num_rounds=num_rounds
         )         
         return ServerAppComponents(strategy=strategy, config=config)
 
@@ -166,11 +179,11 @@ def create_server_fn(num_rounds, min_fit_clients, min_evaluate_clients, min_avai
     return ServerApp(server_fn=server_fn)
 
 if __name__ == "__main__":
-    NUM_ROUNDS = 20
-    NUM_CLIENTS = 1
-    MIN_CLIENTS = 1
+    NUM_ROUNDS = 100
+    NUM_CLIENTS = 50
+    MIN_CLIENTS = 20
     
-    # 使用完整的主机名
+    # Get the hostname
     hostname = socket.gethostname()
     SERVER_ADDRESS = f"{hostname}:8080"
     print(f"Server will listen on {SERVER_ADDRESS}")
@@ -182,7 +195,8 @@ if __name__ == "__main__":
         min_evaluate_clients=MIN_CLIENTS,  
         min_available_clients=MIN_CLIENTS, 
         on_fit_config_fn=fit_config,
-        on_evaluate_config_fn=evaluate_config_factory(NUM_ROUNDS)
+        on_evaluate_config_fn=evaluate_config_factory(NUM_ROUNDS),
+        num_rounds=NUM_ROUNDS
     )
     
     # 保存完整的服务器地址

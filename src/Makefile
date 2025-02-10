@@ -1,18 +1,19 @@
 # 定义变量
 PYTHON = python3
-# BSUB = bsub -q gpu -Is -gpu "num=1"
+BSUB = bsub -q gpu -Is -gpu "num=1"
 SERVER_SCRIPT = create_server.py
 CLIENT_SCRIPT = create_client.py
 SRC_DIR = encrypted
-NUM_CLIENTS = 1
+NUM_CLIENTS = 20
 
 # 默认目标
 all: 
 	@echo "Please specify a target !!!"
 
 plot: 
-	python3 plot_accuracy.py
-	python3 plot_time_stat.py
+	$(BSUB) $(PYTHON) plot_accuracy.py
+	$(BSUB) $(PYTHON) plot_time_stat.py
+	
 # 运行 create_server.py
 server:
 	rm -f server_address.txt  client_* 

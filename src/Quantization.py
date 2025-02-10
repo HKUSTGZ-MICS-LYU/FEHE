@@ -159,6 +159,8 @@ class Quantizer:
     def asymmetric_dequantize(self, qw, scale, zero_point):
         return (qw - zero_point) / scale
     
+
+    
     def block_quantize(self, data, q_bit, block_size=1024):
         qw = np.zeros_like(data, dtype=int)
         scales = []
@@ -196,8 +198,9 @@ class Quantizer:
         mu = np.mean(data)
         sigma = np.std(data)
         n = len(sigma_bits)
-        masks = []
+        
         # Define masks for each region
+        masks = []
         masks.append(np.abs(data - mu) > (n - 1) * sigma)   
         for i in range(1, n - 1):
             lower = (n - 1 - i) * sigma
@@ -205,67 +208,65 @@ class Quantizer:
             masks.append((np.abs(data - mu) > lower) & (np.abs(data - mu) <= upper))
         masks.append(np.abs(data - mu) <= sigma)
      
-        quantized_parts = []
+        flat_data = data.flatten()
+        flattened_quantized = np.zeros_like(flat_data, dtype=np.int32)
         scales = []
         min_vals = []
-        region_indices = []
-        original_shape = data.shape
-        flat_data = data.flatten()
+        region_map = np.zeros_like(flat_data, dtype=np.int32)  
+        
         for i, mask in enumerate(masks):
-            indices = np.where(mask.flatten())[0]
-            region_data = flat_data[indices]
-            if len(region_data) == 0:
-                quantized_part = np.array([], dtype=int)
-                scale = 0.0
-                min_val = 0.0
-            else:
+            flat_mask = mask.flatten()
+            indices = np.where(flat_mask)[0]
+            if len(indices) > 0:
+                region_data = flat_data[indices]
                 quantized_part, scale, min_val = self.quantize_weights(region_data, sigma_bits[i])
-            quantized_parts.append(quantized_part)
+                flattened_quantized[indices] = quantized_part
+                region_map[indices] = i
+            else:
+                scale, min_val = 0.0, 0.0
             scales.append(scale)
             min_vals.append(min_val)
-            region_indices.append(indices)
             
         params = {
             'sigma_bits': sigma_bits,
             'scales': scales,
             'min_vals': min_vals,
-            'region_indices': region_indices,
-            'original_shape': original_shape
+            'region_map': region_map,
+            'original_shape': data.shape
         }
-        return quantized_parts, params
+        return flattened_quantized, params
     
-    def sigma_dequantize(self, quantized_parts, params):
+    def sigma_dequantize(self, flattened_quantized, params):
         """
-        Dequantization of sigma-quantized weights.
+        Dequantization of flattened sigma-quantized weights
         
         Args:
-            quantized_parts: List of quantized data for each region
-            params: Dictionary containing quantization parameters
+            flattened_quantized: Flattened quantized data
+            params: Dictionary containing region information
         
         Returns:
-            dequantized_data: Dequantized data
+            dequantized_data: Reshaped dequantized data
         """
         scales = params['scales']
         min_vals = params['min_vals']
-        region_indices = params['region_indices']
+        region_map = params['region_map']
         original_shape = params['original_shape']
         
-        total_elements = np.prod(original_shape)
-        dequantized_flat = np.zeros(total_elements, dtype=float)
-        for i in range(len(quantized_parts)):
-            q_part = quantized_parts[i]
-            scale = scales[i]
-            min_val = min_vals[i]
-            indices = region_indices[i]
-            
-            if len(indices) == 0:
-                continue
-            dq_part = self.dequantize_weights(q_part, scale, min_val)
-            dequantized_flat[indices] = dq_part
-            
-        dequantized_data = dequantized_flat.reshape(original_shape)
-        return dequantized_data
+        # 确保输入数据是numpy数组
+        flattened_quantized = np.array(flattened_quantized)
+        dequantized_flat = np.zeros_like(flattened_quantized, dtype=float)
         
+        # 对每个区域进行反量化
+        for i in range(len(scales)):
+            # 确保indices是整数类型
+            region_indices = np.where(region_map == i)[0].astype(int)
+            if len(region_indices) > 0:
+                q_data = flattened_quantized[region_indices]
+                dq_data = self.dequantize_weights(q_data, scales[i], min_vals[i])
+                dequantized_flat[region_indices] = dq_data
+        
+        return dequantized_flat.reshape(original_shape)
+            
     
     def quantize_weights_unified(self, weight, n_bits, method='naive', **kwargs):
         """
@@ -278,6 +279,7 @@ class Quantizer:
         - symmetric: Symmetric quantization of weights to n_bits.
         - asymmetric: Asymmetric quantization of weights to n_bits.
         - block: Block quantization of weights to n_bits.
+        - sigma: Sigma-based quantization of weights to n_bits.
         """
         data = np.array(weight)
         params = {'method': method, 'n_bits': n_bits}

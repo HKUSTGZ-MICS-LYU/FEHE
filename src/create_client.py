@@ -38,10 +38,8 @@ class FlowerClient(NumPyClient):
         return get_parameters(self.net)
 
     def fit(self, parameters, config):
-        
         set_parameters(self.net, parameters)
         
-      
         train_start = time.time()
         train(self.net, self.trainloader, epochs=config["local_epochs"], verbose=True)
         train_time = time.time() - train_start
@@ -49,17 +47,15 @@ class FlowerClient(NumPyClient):
         
         updated_params = self.net.state_dict()
 
-      
         if Enc_needed.encryption_needed.value == 1:
-            # 统计加密时间
             encrypt_start = time.time()
-            _, serialized_dataspace, self.quant_params = param_encrypt(updated_params, self.pid)
+            _, serialized_dataspace, self.quant_params = param_encrypt(updated_params, self.pid, config["global_max"], config["global_min"])
             encrypt_time = time.time() - encrypt_start
             self.time_stats['encrypt'].append(encrypt_time)
-            
             self.serialized_dataspace_log.append(serialized_dataspace)
-                  
-        return get_parameters(self.net), len(self.trainloader), {"pid": self.pid}
+        local_max = max(updated_params)
+        local_min = min(updated_params)
+        return get_parameters(self.net), len(self.trainloader), {"pid": self.pid, "local_max": local_max, "local_min": local_min}
 
     def evaluate(self, parameters, config):        
         server_round = config["server_round"]
@@ -213,10 +209,10 @@ def get_server_address():
 if __name__ == "__main__":
     """Create a Flower client representing a single organization."""
     BATCH_SIZE = 32
-    DATASET_NAME = "cifar10"
+    DATASET_NAME = "fashionmnist"
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    net = MODEL_MAP['ResNet18']().to(DEVICE)
+    net = MODEL_MAP['LeNet5']().to(DEVICE)
     parser = argparse.ArgumentParser(description="Flower Client")
     parser.add_argument("--partition-id", type=int, default=0, help="Partition ID")
     parser.add_argument("--CLIENT_NUMER", type=int, default=10, help="Number of clients")

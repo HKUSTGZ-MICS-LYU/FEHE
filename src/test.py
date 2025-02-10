@@ -2,7 +2,7 @@
 import torch
 
 
-def test(net, testloader):
+def test(net, testloader, verbose=True):
     """Evaluate the network on the entire test set."""
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     criterion = torch.nn.CrossEntropyLoss()
@@ -25,4 +25,6 @@ def test(net, testloader):
     
     loss /= len(testloader.dataset)
     accuracy = correct / total
+    if verbose:
+        print(f"Test loss {loss}, accuracy {accuracy}")
     return loss, accuracy
