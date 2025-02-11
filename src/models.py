@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import models
+from torchvision.models import ResNet18_Weights
 
 # Used for cifar10 and it is flower's example
 class Net(nn.Module):
@@ -28,8 +29,8 @@ class ResNet18(nn.Module):
     def __init__(self, num_classes=10):
         super(ResNet18, self).__init__()
         
-        # 1. Load the pretrained ResNet-18 model
-        self.model = models.resnet18(pretrained=True)
+        # 1. Define the ResNet-18 model
+        self.model = models.resnet18(weights=ResNet18_Weights.DEFAULT)
         
         # 2. Change the output layer to have the number of classes in our dataset
         input_features = self.model.fc.in_features

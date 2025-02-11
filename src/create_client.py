@@ -4,20 +4,20 @@ import flwr as fl
 from flwr.common import  Context
 from flwr.client import Client, NumPyClient, ClientApp
 import torch
-from encryption import Enc_needed, param_decrypt, param_encrypt
 from globals import MODEL_MAP
 from utils import get_parameters, set_parameters
 from train import train
-from grad import test
+from test import test
 from dataloader import load_datasets
-from Quantization import *
+from quantization import *
 import time
+from flwr.common import *
+
 
  
 
 
-class FlowerClient(NumPyClient):
-    # The characteristics of the client are defined in the constructor
+class FlowerClient(Client):
     def __init__(self, pid, net, trainloader, valloader):
         self.pid = pid
         self.net = net
@@ -26,106 +26,73 @@ class FlowerClient(NumPyClient):
         self.serialized_dataspace_log = []
         self.epoch_accuracy = {}
         self.quant_params = None
-        # 添加时间统计字典
         self.time_stats = {
             'train': [],
-            'encrypt': [],
-            'decrypt': [],
             'evaluate': []
         }
 
-    def get_parameters(self, config):
-        return get_parameters(self.net)
+    def get_parameters(self, ins: GetParametersIns) -> GetParametersRes:
+        ndarrays =  get_parameters(self.net)
+        parameters = ndarrays_to_parameters(ndarrays)
+        status = Status(code=Code.OK, message="success")
+        return GetParametersRes(
+            parameters=parameters,
+            status=status
+        )
 
-    def fit(self, parameters, config):
-        set_parameters(self.net, parameters)
+    def fit(self, ins: FitIns) -> FitRes:
+     
         
+        # Deserialize the parameters to NumPy ndarray's
+        paramters_original = ins.parameters
+        ndarrays_original = parameters_to_ndarrays(paramters_original)
+        
+        # Update local model, train, get updated parameters
+        set_parameters(self.net, ndarrays_original)
         train_start = time.time()
-        train(self.net, self.trainloader, epochs=config["local_epochs"], verbose=True)
+        train(self.net, self.trainloader, epochs=ins.config['local_epochs'], verbose=True)
         train_time = time.time() - train_start
-        self.time_stats['train'].append(train_time)
+        self.time_stats['train'].append(train_time)  
         
-        updated_params = self.net.state_dict()
-
-        if Enc_needed.encryption_needed.value == 1:
-            encrypt_start = time.time()
-            _, serialized_dataspace, self.quant_params = param_encrypt(updated_params, self.pid, config["global_max"], config["global_min"])
-            encrypt_time = time.time() - encrypt_start
-            self.time_stats['encrypt'].append(encrypt_time)
-            self.serialized_dataspace_log.append(serialized_dataspace)
-        local_max = max(updated_params)
-        local_min = min(updated_params)
-        return get_parameters(self.net), len(self.trainloader), {"pid": self.pid, "local_max": local_max, "local_min": local_min}
-
-    def evaluate(self, parameters, config):        
-        server_round = config["server_round"]
-    
-        if Enc_needed.encryption_needed.value == 1:
-           
-            decrypt_start = time.time()
-            params_decrypted = param_decrypt(f"encrypted/aggregated_data_encrypted_{server_round}.txt", self.quant_params)
-            decrypt_time = time.time() - decrypt_start
-            self.time_stats['decrypt'].append(decrypt_time)
-            
-            reshaped_params = []
-            shapes = [np.shape(arr) for arr in parameters]
-            current_index = 0
-            
-            for shape in shapes:
-              
-                size = int(np.prod(shape))
-                
-             
-                start_idx = int(current_index)
-                end_idx = int(current_index + size)
-                
-               
-                if end_idx > len(params_decrypted):
-                    raise ValueError(f"Index out of range: trying to access index {end_idx} but array length is {len(params_decrypted)}")
-                
-             
-                chunk = params_decrypted[start_idx:end_idx]
-                reshaped_arr = np.array(chunk).reshape(shape)
-                reshaped_params.append(reshaped_arr)
-                
-                current_index += size
-
-            set_parameters(self.net, reshaped_params)
-            
-            # 统计评估时间
-            eval_start = time.time()
-            loss, accuracy = test(self.net, self.valloader)
-            eval_time = time.time() - eval_start
-            self.time_stats['evaluate'].append(eval_time)
-            
-            self.epoch_accuracy[server_round] = accuracy
-            
-            if server_round == config.get("total_rounds"):
-                self.on_train_end()
-                self._save_time_stats()  
-            return loss, len(self.valloader), {"accuracy": float(accuracy)}
+        # Serialize the updated parameters
+        ndarrays_updated = get_parameters(self.net)
+        parameters_updated = ndarrays_to_parameters(ndarrays_updated)
         
-        set_parameters(self.net, parameters)
-        loss, accuracy = test(self.net, self.valloader)
+        # Build and return the response
+        status = Status(code=Code.OK, message="success")
+        return FitRes(
+            parameters=parameters_updated,
+            num_examples=len(self.trainloader),
+            status=status,
+            metrics={"pid": self.pid}
+        )
+         
+
+    def evaluate(self, ins: EvaluateIns) -> EvaluateRes:
+
+        server_round = ins.config["server_round"]
+        # Deserialize the parameters to NumPy ndarray's
+        parameters_original = ins.parameters
+        ndarrays_original = parameters_to_ndarrays(parameters_original)
+        set_parameters(self.net, ndarrays_original)
+        
+        start_time = time.time()
+        loss, accuracy = test(self.net, self.valloader, verbose=True)
+        evaluate_time = time.time() - start_time
+        self.time_stats['evaluate'].append(evaluate_time)
+        
         self.epoch_accuracy[server_round] = accuracy            
-        if server_round == config.get("total_rounds"):
+        if server_round == ins.config.get("total_rounds"):
             self.on_train_end()
             self._save_time_stats()  
-        return loss, len(self.valloader), {"accuracy": float(accuracy)}
+        status = Status(code=Code.OK, message="success")
+        return EvaluateRes(
+            status = status,
+            loss = float(loss),
+            num_examples=len(self.valloader),
+            metrics={"accuracy": float(accuracy)}
+        )
     
-    def _reshape_parameters(self, parameters, decrypted_data):
-        """Reshape the decrypted data to match the shape of the original parameters."""
-        reshaped_params = []
-        current_index = 0
-        for shape in [np.shape(arr) for arr in parameters]:
-            size = np.prod(shape)
-            reshaped_arr = np.reshape(
-                decrypted_data[current_index:current_index + size], 
-                shape
-            )
-            reshaped_params.append(reshaped_arr)
-            current_index += size
-        return reshaped_params
     
     def on_train_end(self):
         """Print the accuracy of the client after training."""
@@ -208,11 +175,11 @@ def get_server_address():
 
 if __name__ == "__main__":
     """Create a Flower client representing a single organization."""
-    BATCH_SIZE = 32
-    DATASET_NAME = "fashionmnist"
+    BATCH_SIZE = 128
+    DATASET_NAME = "cifar10"
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    net = MODEL_MAP['LeNet5']().to(DEVICE)
+    net = MODEL_MAP['ResNet18'](num_classes = 10).to(DEVICE)
     parser = argparse.ArgumentParser(description="Flower Client")
     parser.add_argument("--partition-id", type=int, default=0, help="Partition ID")
     parser.add_argument("--CLIENT_NUMER", type=int, default=10, help="Number of clients")

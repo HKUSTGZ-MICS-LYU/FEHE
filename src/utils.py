@@ -45,3 +45,25 @@ def set_parameters(net, parameters):
         print(f"Parameters length: {len(parameters)}")
         print(f"Model state dict keys: {net.state_dict().keys()}")
         raise
+    
+def reshape_parameters(parameters, decrypted_data):
+    """Reshape the decrypted data to match the shape of the original parameters."""
+    # 确保 decrypted_data 是 numpy 数组
+    decrypted_data = np.array(decrypted_data)
+    
+    reshaped_params = []
+    current_index = 0
+    
+    for param in parameters:
+        shape = param.shape
+        size = int(np.prod(shape))  # 确保 size 是整数
+        
+        # 切片操作前确保索引是整数
+        start_idx = int(current_index)
+        end_idx = int(current_index + size)
+        
+        reshaped_arr = decrypted_data[start_idx:end_idx].reshape(shape)
+        reshaped_params.append(reshaped_arr)
+        current_index += size
+        
+    return reshaped_params

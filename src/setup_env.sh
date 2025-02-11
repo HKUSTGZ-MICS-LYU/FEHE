@@ -1,5 +1,6 @@
 #!/bin/bash
 
+
 # Load CUDA module
 module load cuda/cuda-12.0
 

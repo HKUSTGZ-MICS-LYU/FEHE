@@ -1,10 +1,10 @@
 # 定义变量
 PYTHON = python3
-BSUB = bsub -q gpu -Is -gpu "num=1"
+BSUB = bsub -q gpu -Is -gpu "num=4"
 SERVER_SCRIPT = create_server.py
 CLIENT_SCRIPT = create_client.py
 SRC_DIR = encrypted
-NUM_CLIENTS = 20
+NUM_CLIENTS = 5
 
 # 默认目标
 all: 
@@ -38,6 +38,7 @@ clean:
 	rm -f server_address.txt
 	rm -rf *.png
 	rm -rf *.csv
+	rm -rf *.txt
 
 # 声明伪目标
 .PHONY: server client clients clean plot

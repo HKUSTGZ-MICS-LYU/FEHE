@@ -181,7 +181,7 @@ class Quantizer:
             deq[start:end] = qw[start:end] / scales[i]
         return deq
         
-    def sigma_quantize(self, data, sigma_bits):
+    def sigma_quantize(self, data, sigma_bits, global_mu, global_sigma):
         """
         Sigma-based quantization: Divides data into regions based on sigma intervals (3sigma, 2-3sigma, 1-2sigma, 1sigma),
         and quantizes each region with specified bits.
@@ -189,16 +189,18 @@ class Quantizer:
         Args:
             data: Input weight data (numpy array)
             sigma_bits: List of bits for each region (e.g., [8, 6, 4, 2])
+            global_mu: Global mean of the data
+            global_sigma: Global standard deviation of the data
         
         Returns:
             quantized_parts: List of quantized data for each region
             params: Dictionary containing quantization parameters
         """
         data = np.array(data)
-        mu = np.mean(data)
-        sigma = np.std(data)
+        mu = global_mu
+        sigma = global_sigma
         n = len(sigma_bits)
-        
+   
         # Define masks for each region
         masks = []
         masks.append(np.abs(data - mu) > (n - 1) * sigma)   
@@ -311,7 +313,9 @@ class Quantizer:
             params.update({'scales': scales, 'block_size': kwargs.get('block_size', 1024)})
         elif method == 'sigma':
             sigma_bits = kwargs.get('sigma_bits', [8, 6, 4, 2])
-            quantized_parts, sigma_params = self.sigma_quantize(data, sigma_bits)
+            global_mu = kwargs.get('global_mu', np.mean(data))
+            global_sigma = kwargs.get('global_sigma', np.std(data))
+            quantized_parts, sigma_params = self.sigma_quantize(data, sigma_bits, global_mu, global_sigma)
             params.update(sigma_params)
             return quantized_parts, params
         else:
