@@ -271,7 +271,7 @@ def create_server_fn(num_rounds, min_fit_clients, min_evaluate_clients, min_avai
     return ServerApp(server_fn=server_fn)
 
 if __name__ == "__main__":
-    NUM_ROUNDS = 100
+    NUM_ROUNDS = 10
     NUM_CLIENTS = 1
     MIN_CLIENTS = 1
     
