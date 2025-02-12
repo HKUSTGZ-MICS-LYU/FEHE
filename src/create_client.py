@@ -32,53 +32,58 @@ class FlowerClient(Client):
         }
 
     def get_parameters(self, ins: GetParametersIns) -> GetParametersRes:
-        ndarrays =  get_parameters(self.net)
-        parameters = ndarrays_to_parameters(ndarrays)
-        status = Status(code=Code.OK, message="success")
+        selected_params = get_parameters(self.net)
+        parameters = ndarrays_to_parameters(selected_params)
         return GetParametersRes(
-            parameters=parameters,
-            status=status
-        )
+            parameters=parameters, 
+            status=Status(code=Code.OK, message="success")
+            )
+
 
     def fit(self, ins: FitIns) -> FitRes:
-     
+        # Get the parameters from the server
+        server_params = parameters_to_ndarrays(ins.parameters)
         
-        # Deserialize the parameters to NumPy ndarray's
-        paramters_original = ins.parameters
-        ndarrays_original = parameters_to_ndarrays(paramters_original)
+        # Set the parameters to the model
+        set_parameters(self.net, server_params)
         
-        # Update local model, train, get updated parameters
-        set_parameters(self.net, ndarrays_original)
-        train_start = time.time()
+        # Train the model
+        start_time = time.time()
         train(self.net, self.trainloader, epochs=ins.config['local_epochs'], verbose=True)
-        train_time = time.time() - train_start
+        end_time = time.time()
+        train_time = end_time - start_time
         self.time_stats['train'].append(train_time)  
+       
+        # Get the updated parameters
+        updated_params = get_parameters(self.net)
         
         # Serialize the updated parameters
-        ndarrays_updated = get_parameters(self.net)
-        parameters_updated = ndarrays_to_parameters(ndarrays_updated)
+        parameters_updated = ndarrays_to_parameters(updated_params)
         
-        # Build and return the response
-        status = Status(code=Code.OK, message="success")
-        return FitRes(
-            parameters=parameters_updated,
-            num_examples=len(self.trainloader),
-            status=status,
-            metrics={"pid": self.pid}
-        )
+        return FitRes(  
+                parameters=parameters_updated, 
+                num_examples=len(self.trainloader), 
+                status=Status(code=Code.OK, message="success"),
+                metrics={"pid": self.pid}
+                )
+    
          
 
     def evaluate(self, ins: EvaluateIns) -> EvaluateRes:
 
         server_round = ins.config["server_round"]
+        
         # Deserialize the parameters to NumPy ndarray's
-        parameters_original = ins.parameters
-        ndarrays_original = parameters_to_ndarrays(parameters_original)
+        ndarrays_original = parameters_to_ndarrays(ins.parameters)
+        
+        # Set the parameters to the model
         set_parameters(self.net, ndarrays_original)
         
+        # Evaluate the model
         start_time = time.time()
         loss, accuracy = test(self.net, self.valloader, verbose=True)
-        evaluate_time = time.time() - start_time
+        end_time = time.time()
+        evaluate_time = end_time - start_time
         self.time_stats['evaluate'].append(evaluate_time)
         
         self.epoch_accuracy[server_round] = accuracy            
@@ -175,11 +180,16 @@ def get_server_address():
 
 if __name__ == "__main__":
     """Create a Flower client representing a single organization."""
-    BATCH_SIZE = 128
-    DATASET_NAME = "cifar10"
+    BATCH_SIZE = 16
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # DATASET_NAME = "cifar10"
+    DATASET_NAME = "fashionmnist"
+    num_classes = 10 if DATASET_NAME == "cifar10" or DATASET_NAME == "fashionmnist" else 100
+    # net = MODEL_MAP['ResNet18'](num_classes).to(DEVICE)
+    net = MODEL_MAP['LeNet5'](num_classes).to(DEVICE)
     
-    net = MODEL_MAP['ResNet18'](num_classes = 10).to(DEVICE)
+    
+    
     parser = argparse.ArgumentParser(description="Flower Client")
     parser.add_argument("--partition-id", type=int, default=0, help="Partition ID")
     parser.add_argument("--CLIENT_NUMER", type=int, default=10, help="Number of clients")

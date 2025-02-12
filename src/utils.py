@@ -1,69 +1,39 @@
 from collections import OrderedDict
-from typing import List
+from typing import Dict, List
 import numpy as np
 import torch
-
-
-def set_parameters(net, parameters: List[np.ndarray]):
-    params_dict = zip(net.state_dict().keys(), parameters)
-    state_dict = OrderedDict({k: torch.tensor(v) for k, v in params_dict})
-    net.load_state_dict(state_dict, strict=True)
-
+import torch.nn as nn
 
 def get_parameters(net):
-    """Get model parameters as a list of NumPy arrays."""
-    return [val.cpu().numpy() for _, val in net.state_dict().items()]
+    """Get model parameters (weights of Conv2d and Linear layers) as a list of NumPy arrays."""
+    params = []
+    for name, module in net.named_modules():
+        if isinstance(module, (nn.Conv2d, nn.Linear)):
+            weight = module.weight.detach().cpu().numpy()
+            params.append(weight)
+    return params
+
 
 def set_parameters(net, parameters):
-    """Set model parameters from a list of NumPy arrays."""
-    try:
-        # 确保参数列表不为空
-        if not parameters or len(parameters) == 0:
-            raise ValueError("Empty parameters list")
-            
-        # 获取模型的参数名称
-        params_dict = zip(net.state_dict().keys(), parameters)
-        
-        # 转换参数为 PyTorch tensors，保持数据类型
-        state_dict = OrderedDict()
-        for k, v in params_dict:
-            if v.size == 0:  # 检查空数组
-                raise ValueError(f"Empty array for parameter {k}")
-            tensor = torch.tensor(v)
-            # 确保参数维度匹配
-            if k in net.state_dict():
-                expected_shape = net.state_dict()[k].shape
-                if tensor.shape != expected_shape:
-                    tensor = tensor.reshape(expected_shape)
-            state_dict[k] = tensor
-            
-        # 加载参数
-        net.load_state_dict(state_dict, strict=True)
-        
-    except Exception as e:
-        print(f"Error in set_parameters: {str(e)}")
-        print(f"Parameters length: {len(parameters)}")
-        print(f"Model state dict keys: {net.state_dict().keys()}")
-        raise
+    """Set model parameters from a dictionary of NumPy arrays (weights of Conv2d and Linear layers)."""
+    params_iter = iter(parameters)
+    for _, module in net.named_modules():
+        if isinstance(module, (nn.Conv2d, nn.Linear)):
+            weight = next(params_iter)
+            module.weight.data = torch.from_numpy(weight).to(module.weight.device)
+
     
-def reshape_parameters(parameters, decrypted_data):
-    """Reshape the decrypted data to match the shape of the original parameters."""
-    # 确保 decrypted_data 是 numpy 数组
-    decrypted_data = np.array(decrypted_data)
-    
+def reshape_parameters(original_params, decrypted_data) -> List[np.ndarray]:
+    """Reshape the decrypted data to match the shapes of the original parameters."""
     reshaped_params = []
-    current_index = 0
+    decrypted_data = np.array(decrypted_data).flatten()
+    current_idx = 0
     
-    for param in parameters:
-        shape = param.shape
-        size = int(np.prod(shape))  # 确保 size 是整数
-        
-        # 切片操作前确保索引是整数
-        start_idx = int(current_index)
-        end_idx = int(current_index + size)
-        
-        reshaped_arr = decrypted_data[start_idx:end_idx].reshape(shape)
-        reshaped_params.append(reshaped_arr)
-        current_index += size
-        
+    for param in original_params:
+        param_size = param.size
+        param_shape = param.shape
+        param_data = decrypted_data[current_idx:current_idx + param_size]
+        reshaped_params.append(param_data.reshape(param_shape))
+        current_idx += param_size
+    
     return reshaped_params

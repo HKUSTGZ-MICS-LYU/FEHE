@@ -108,9 +108,11 @@ def load_datasets(
             partition = fds.load_partition(partition_id)
             # Divide the partition into train and test sets (80% train, 20% test)
             partition_train_test = partition.train_test_split(test_size=0.2, seed=42)
-            pytorch_transform = transforms.Compose(
-                [transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))]
-            )
+            pytorch_transform = transforms.Compose([
+                transforms.Resize((32, 32)),
+                transforms.ToTensor(), 
+                transforms.Normalize((0.5,), (0.5,))
+                ])
             def apply_transforms(batch):
                 batch["image"] = [pytorch_transform(img) for img in batch["image"]]
                 return batch

@@ -6,8 +6,8 @@ def train(net, trainloader, epochs: int, verbose=False):
     """Train the network on the training set."""
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     criterion = torch.nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(net.parameters(), lr=0.001, weight_decay=1e-4)
-    scheduler = StepLR(optimizer, step_size=30, gamma=0.1)
+    optimizer = torch.optim.Adam(net.parameters(), lr=0.01, weight_decay=1e-4)
+    # scheduler = StepLR(optimizer, step_size=30, gamma=0.1)
     
     net.train()
     for epoch in range(epochs):
@@ -44,7 +44,7 @@ def train(net, trainloader, epochs: int, verbose=False):
             epoch_loss += loss.item()
             total += labels.size(0)
             correct += (torch.max(outputs.data, 1)[1] == labels).sum().item()
-        scheduler.step()
+        # scheduler.step()
         epoch_loss /= len(trainloader)
         epoch_acc = correct / total
         if verbose:

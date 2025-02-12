@@ -71,26 +71,30 @@ class AlexNet(nn.Module):
     def forward(self, x):
         return self.model(x)
       
-# Used for fashionmnist
-class LeNet5(torch.nn.Module):
-    def __init__(self, num_classes=10):
+      
+class LeNet5(nn.Module):
+    def __init__(self, num_classes):
         super(LeNet5, self).__init__()
-        self.conv1 = torch.nn.Conv2d(1, 6, kernel_size=5, stride=1, padding=2)
-        self.conv2 = torch.nn.Conv2d(6, 16, kernel_size=5)
-        self.fc1 = torch.nn.Linear(16 * 5 * 5, 120)
-        self.fc2 = torch.nn.Linear(120, 84)
-        self.fc3 = torch.nn.Linear(84, num_classes)
-        self.relu = torch.nn.ReLU()
-        self.pool = torch.nn.AvgPool2d(2, 2)
+        self.features = nn.Sequential(
+            nn.Conv2d(1, 6, 5),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            nn.Conv2d(6, 16, 5),
+            nn.ReLU(),
+            nn.MaxPool2d(2)
+        )
+        self.classifier = nn.Sequential(
+            nn.Linear(16*5*5, 120),
+            nn.ReLU(),
+            nn.Linear(120, 84),
+            nn.ReLU(),
+            nn.Linear(84, num_classes)
+        )
 
     def forward(self, x):
-        x = self.pool(self.relu(self.conv1(x)))  # Conv1 -> ReLU -> Pool
-        x = self.pool(self.relu(self.conv2(x)))  # Conv2 -> ReLU -> Pool
-        x = x.view(-1, 16 * 5 * 5)              # Flatten
-        x = self.relu(self.fc1(x))              # FC1 -> ReLU
-        x = self.relu(self.fc2(x))              # FC2 -> ReLU
-        x = self.fc3(x)                         # FC3 (Logits)
+        x = self.features(x)
+        x = torch.flatten(x, 1)
+        x = self.classifier(x)
         return x
-
 
 

@@ -1,0 +1,37 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "FL Server",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/create_server.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        },
+        {
+            "name": "FL Client",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/create_client.py",
+            "args": [
+                "--partition-id", "0",
+                "--CLIENT_NUMER", "1"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        }
+    ],
+    "compounds": [
+        {
+            "name": "Server + Client",
+            "configurations": ["FL Server", "FL Client"]
+        }
+    ]
+}
