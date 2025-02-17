@@ -163,11 +163,13 @@ def train_model(model_name, dataset_name, epochs=100, batch_size=512, lr=0.01):
 if __name__ == '__main__':
     # 训练所有组合
     combinations = [
-        ('LeNet5', 'FASHIONMNIST'),
-        ('ResNet18', 'CIFAR10'),
-        ('ResNet18', 'CIFAR100')
+        # ('LeNet5', 'FASHIONMNIST'),
+        ('ResNet18', 'CIFAR10')
+        # ('ResNet18', 'CIFAR100')
     ]
     
     for model_name, dataset_name in combinations:
         print(f"\nTraining {model_name} on {dataset_name}")
         train_model(model_name, dataset_name)
+        
+        

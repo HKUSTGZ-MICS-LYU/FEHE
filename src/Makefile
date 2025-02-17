@@ -4,7 +4,7 @@ BSUB = bsub -q gpu -Is -gpu "num=1"
 SERVER_SCRIPT = create_server.py
 CLIENT_SCRIPT = create_client.py
 SRC_DIR = encrypted
-NUM_CLIENTS = 1
+NUM_CLIENTS = 3
 # 默认目标
 all: 
 	@echo "Please specify a target !!!"
@@ -15,7 +15,7 @@ plot:
 	
 # 运行 create_server.py
 server:
-	rm -f server_address.txt  client_* 
+	rm -f server_address.txt  client_*  encrypted/*
 	$(BSUB) $(PYTHON) $(SERVER_SCRIPT)
 
 # 运行 create_client.py

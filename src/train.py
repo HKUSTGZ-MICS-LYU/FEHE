@@ -2,11 +2,13 @@ import torch
 from torch.optim.lr_scheduler import StepLR
 
 
+    
+
 def train(net, trainloader, epochs: int, verbose=False):
     """Train the network on the training set."""
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     criterion = torch.nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(net.parameters(), lr=0.01, weight_decay=1e-4)
+    optimizer = torch.optim.Adam(net.parameters(), lr=0.001)
     # scheduler = StepLR(optimizer, step_size=30, gamma=0.1)
     
     net.train()

@@ -1,3 +1,4 @@
+import matplotlib.pyplot as plt
 import copy
 import tenseal as ts
 import os
@@ -204,7 +205,7 @@ def evaluate_quantized_model(original_model, test_loader, n_bits, method):
 def main():
     parser = argparse.ArgumentParser(description='Model Quantization')
     parser.add_argument('--model', type=str, choices=['ResNet18', 'LeNet5'], default='ResNet18')
-    parser.add_argument('--dataset', type=str, choices=['cifar10', 'cifar100', 'fashionmnist'], default='cifar100')
+    parser.add_argument('--dataset', type=str, choices=['cifar10', 'cifar100', 'fashionmnist'], default='cifar10')
     args = parser.parse_args()
     
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -221,6 +222,11 @@ def main():
     train_loader, test_loader = load_data(dataset=args.dataset, batch_size=256)
     learning_rate = 0.001
     epochs = 100
+    bits = 8
+    method = 'sigma'
+
+    original_acc_stat = []
+    quanti_acc_stat = []
 
     save_path = f'{model_name}_{args.dataset}.pth'
     if not os.path.exists(save_path):
@@ -228,7 +234,18 @@ def main():
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.Adam(model.parameters(), lr=learning_rate)
         print("Training the model...")
-        train(model, train_loader, criterion, optimizer, device=device, epochs=epochs)
+        for epoch in range(epochs):
+            train(model, train_loader, criterion, optimizer, device=device, epochs=1)
+            original_acc = test(model, test_loader, device=device)
+            original_acc_stat.append(original_acc)
+            
+            original_model = copy.deepcopy(model)
+            quanti_acc = evaluate_quantized_model(original_model, test_loader, bits, method)
+            quanti_acc_stat.append(quanti_acc)
+            
+            print(f"Epoch {epoch + 1}, Original Model Accuracy: {original_acc:.2f}%, Quantized Model Accuracy: {quanti_acc:.2f}%")
+            
+        
         torch.save(model.state_dict(), save_path)
     else:
         print("Model already trained. Loading from disk.")
@@ -236,79 +253,45 @@ def main():
     
     original_model = model.to('cpu')
 
-    # 测试原始模型
+
     print("\nTesting original model...")
     original_acc = test(original_model, test_loader, device='cpu')
     print(f"Original Model Accuracy: {original_acc:.2f}%\n")
+    
+    print("\nTesting quantized model...")
+    quanti_acc = evaluate_quantized_model(original_model, test_loader, bits, method)
+    print(f"Quantized Model Accuracy: {quanti_acc:.2f}%\n")
+    
+    # Plot the original and quantized model accuracy
 
-    # 量化参数测试
-    results = []
-    bits_range = range(2, 9)  # 2-8比特
-    methods = ['sigma', 'block', 'naive']
-
-    results_dict = {method: [] for method in methods}
+    plt.figure(figsize=(10, 5))
+    plt.plot(original_acc_stat, label='Original Model')
+    plt.plot(quanti_acc_stat, label='Quantized Model')
     
-    for bits in bits_range:
-        for method in methods:
-            print(f"Testing bits={bits}, method={method}")
-            acc = evaluate_quantized_model(original_model, test_loader, bits, method)
-            results_dict[method].append(acc)
-            print(f"Results - Bits: {bits}, Method: {method}, Accuracy: {acc:.2f}%\n")
-    # 绘制结果
-    plt.figure(figsize=(15, 5))
+    # Add maximum accuracy labels
+    max_orig_acc = max(original_acc_stat)
+    max_quant_acc = max(quanti_acc_stat)
     
-    # 添加大标题
-    plt.suptitle(f'{model_name}_{args.dataset}', fontsize=16, y=1.05)
+    plt.annotate(f'Max: {max_orig_acc:.2f}%', 
+                xy=(original_acc_stat.index(max_orig_acc), max_orig_acc),
+                xytext=(10, 10), textcoords='offset points')
+    plt.annotate(f'Max: {max_quant_acc:.2f}%',
+                xy=(quanti_acc_stat.index(max_quant_acc), max_quant_acc),
+                xytext=(10, -10), textcoords='offset points')
     
-    # 子图1：所有方法对比
-    plt.subplot(131)
-    for method in methods:
-        plt.plot(list(bits_range), results_dict[method], 
-                marker='o', label=method)
-    plt.title('All Methods Comparison')
-    plt.xlabel('Bits')
-    plt.ylabel('Accuracy (%)')
-    plt.grid(True)
+    plt.xlabel('Epochs')
+    plt.ylabel('Accuracy')
+    plt.title(f'{model_name} on {args.dataset}')
     plt.legend()
+    plt.savefig(f'{model_name}_{args.dataset}.png')
     
-    # 子图2：与原始精度对比
-    plt.subplot(132)
-    for method in methods:
-        acc_drop = [original_acc - acc for acc in results_dict[method]]
-        plt.plot(list(bits_range), acc_drop, 
-                marker='o', label=method)
-    plt.title('Accuracy Drop')
-    plt.xlabel('Bits')
-    plt.ylabel('Accuracy Drop (%)')
-    plt.grid(True)
-    plt.legend()
     
-    # 子图3：相对精度损失
-    plt.subplot(133)
-    for method in methods:
-        relative_loss = [(original_acc - acc)/original_acc * 100 
-                        for acc in results_dict[method]]
-        plt.plot(list(bits_range), relative_loss, 
-                marker='o', label=method)
-    plt.title('Relative Accuracy Loss')
-    plt.xlabel('Bits')
-    plt.ylabel('Relative Loss (%)')
-    plt.grid(True)
-    plt.legend()
-    
-    plt.tight_layout()
-    plt.savefig(f"{model_name}_{args.dataset}_quantization_results.png")
-    
-    # 保存数值结果
-    with open('quantization_results.csv', 'w') as f:
-        f.write('Bits,Original,' + ','.join(methods) + '\n')
-        for i, bits in enumerate(bits_range):
-            row = [str(bits), str(original_acc)]
-            for method in methods:
-                row.append(str(results_dict[method][i]))
-            f.write(','.join(row) + '\n')
 
 
+
+  
+
+ 
 
 if __name__ == '__main__':
     main()

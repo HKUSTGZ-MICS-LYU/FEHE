@@ -1,18 +1,19 @@
+from collections import OrderedDict, defaultdict
 import os
-import sys
-from flwr.common import *
+from flwr.common import Context, Scalar
 from flwr.server import ServerApp, ServerConfig, ServerAppComponents
 from flwr.server.strategy import FedAvg
 import flwr as fl
 import numpy as np
-from quantization import Quantizer
-from encryption import Enc_needed
+import torch
+import encryption
 import filedata as fd
 import tenseal as ts
 import socket
 import time
-from encryption import create_context
-from utils import reshape_parameters
+from typing import Dict, List, Tuple, Optional
+
+from quantization import Quantizer
 
 
 # Configure the fit parameters for clients 
@@ -29,7 +30,7 @@ def evaluate_config_factory(num_rounds: int):
     def _inner(server_round: int):
         return {
             "server_round": server_round,
-            "total_rounds": num_rounds  
+            "total_rounds": num_rounds  # 注入总轮次
         }
     return _inner
 
@@ -37,6 +38,7 @@ class MyFlowerStrategy(FedAvg):
     """A custom Flower strategy extending FedAvg."""
     def __init__(
         self,
+        num_rounds: int,
         fraction_fit: float = 1.0,
         fraction_evaluate: float = 1.0,
         min_fit_clients: int = 3,
@@ -44,7 +46,6 @@ class MyFlowerStrategy(FedAvg):
         min_available_clients: int = 5,
         on_fit_config_fn=None,
         on_evaluate_config_fn=None,
-        num_rounds: int = 1,
     ) -> None:
         """A custom Flower strategy extending FedAvg."""
         super().__init__(
@@ -57,171 +58,230 @@ class MyFlowerStrategy(FedAvg):
             on_evaluate_config_fn=on_evaluate_config_fn,
         )
         self.time_stats = {
-            'aggregation': [],
-            'quantization': [],
-            'encryption': [],
-            'decryption': [],
-            'dequantization': [],
-            'flattening': [],  # Time to flatten weights
-            'statistics': [],  # Time to compute per-layer statistics
-            'chunking': [],    # Time to split into chunks
-            'reshaping': [],   # Time to reshape weights
+            "transmission": [],
+            "quantization": [],
+            "encryption": [],
+            "aggregation": [],
+            "decryption": [],
+            "dequantization": [],
         }
-        self.global_max = float('-inf')  
-        self.global_min = float('inf')   
-        self.global_sigma = None
-        self.global_mu = None
-        self.all_sigma = []
-        self.all_mu = []
+        self.poly_modulus_degree = 4096
+        self.plain_modulus = 1032193
+        self.evaluation_metrics = []  
         self.total_comm_bytes = 0
         self.num_rounds = num_rounds
-        self.aggregated_path = None
+        self.aggregated_path = f"encrypted/aggregated_params.pth"
         self.quantizer = Quantizer()
-        self.chunk_size = 4096
-        self.context = create_context()
+        self.n_bits = 8
+        self.method = "naive"
+        self.context = encryption.create_context(self.poly_modulus_degree, self.plain_modulus)
     
+    def _quantize_weights(self, weights: List[np.ndarray], global_max: float, global_min: float) -> Tuple[List[np.ndarray], Dict]:
+        """Quantize weights using the quantizer."""
+  
+        quantized_weights = []
+        quant_params = None
+        for weight in weights:
+            weight_flat = weight.flatten()
+            quantized_weight, quant_params = self.quantizer.quantize_weights_unified(
+                weight_flat,
+                n_bits=self.n_bits,
+                method=self.method,
+                global_max=global_max,
+                global_min=global_min
+            )
+            quantized_weights.append(quantized_weight)
+        return quantized_weights, quant_params
+
+    def _encrypt_weights(self, quantized_weights: List[np.ndarray]) -> List[ts.BFVVector]:
+        """Encrypt quantized weights using TenSEAL."""
+        encrypted_weights = []
+        for weight in quantized_weights:
+            # Split weights into chunks if length exceeds polynomial degree
+            chunk_size = self.poly_modulus_degree
+            weight_chunks = [weight[i:i + chunk_size] for i in range(0, len(weight), chunk_size)]
+            
+            # Encrypt each chunk
+            encrypted_chunks = []
+            for chunk in weight_chunks:
+                encrypted_chunk = ts.bfv_vector(self.context, chunk)
+                encrypted_chunks.append(encrypted_chunk)
+            encrypted_weights.extend(encrypted_chunks)
+        return encrypted_weights
+
+    def _decrypt_weights(self, encrypted_weights: List[ts.BFVVector]) -> np.ndarray:
+        """Decrypt encrypted weights using TenSEAL."""
+        decrypted_weights = []
+        for encrypted_weight in encrypted_weights:
+            decrypted_chunk = encrypted_weight.decrypt(self.context.secret_key())
+            decrypted_weights.extend(decrypted_chunk)
+        return np.array(decrypted_weights)
+
+    def _dequantize_weights(self, quantized_weights: np.ndarray, quant_params: Dict) -> np.ndarray:
+        """Dequantize weights using the quantizer."""
+        return np.array(self.quantizer.dequantize_weights_unified(quantized_weights, quant_params))
+
     def aggregate_fit(self, server_round: int, results, failures):
-        if not results:
-            return [], {}
-
-    #     # Get layer structure from the first client
         
-    # # 获取第一个客户端参数并打印信息
-    #     first_client_params = parameters_to_ndarrays(results[0][1].parameters)
-    #     print(f"\n=== Round {server_round} Layer Information ===")
-    #     for idx, param in enumerate(first_client_params):
-    #         print(f"Layer {idx}:")
-    #         print(f"  Shape: {param.shape}")
-    #         print(f"  Size: {param.size}")
-    #         print(f"  Mean: {np.mean(param):.6f}")
-    #         print(f"  Std: {np.std(param):.6f}")
-    #         print("-" * 50)
-    #     num_layers = len(first_client_params)
-    #     layer_shapes = [param.shape for param in first_client_params]
+        # Get the transmission time and load client parameters
+        transmission_time = time.time()
+        client_params = [
+            torch.load(f"encrypted/client_{client.metrics.get('pid')}_params.pth", weights_only=False)
+            for _, client in results
+        ]
+        transmission_time = time.time() - transmission_time
+        self.time_stats["transmission"].append(transmission_time)
 
-    #     # Initialize storage for layer-wise processing
-    #     aggregated_layers = []
-    #     for layer_idx in range(num_layers):
-    #         # Step 1: Flatten weights
-    #         flatten_start = time.time()
-    #         layer_data = []
-    #         for client, fit_res in results:
-    #             client_params = parameters_to_ndarrays(fit_res.parameters)
-    #             layer_weights = client_params[layer_idx].flatten()
-    #             layer_data.append(layer_weights)
-    #         flatten_time = time.time() - flatten_start
-    #         self.time_stats['flattening'].append(flatten_time)
+        # Initialize the aggregated parameters
+        quantized_layers = {}
+        non_quantized_layers = defaultdict(list)
+        quantization_time = time.time()
+        # Pre-compile the name check
+        is_quantizable = lambda name: (
+            ('conv' in name or 'fc' in name)
+            and 'running_mean' not in name
+            and 'running_var' not in name
+            and 'num_batches_tracked' not in name
+        )
+        # Process parameters in batch
+        for params in client_params:
+            for name, param in params.items():
+                # Convert to numpy array once
+                weight = param.cpu().detach().numpy()
+                if is_quantizable(name):
+                    if name not in quantized_layers:
+                        quantized_layers[name] = {
+                            'weights': [],
+                            'shape': weight.shape
+                        }
+                    quantized_layers[name]['weights'].append(weight)
+                else:
+                    non_quantized_layers[name].append(weight)    
+        quantization_time = time.time() - quantization_time
+        self.time_stats["quantization"].append(quantization_time)
+        
 
-    #         # Step 2: Compute per-layer statistics
-    #         stats_start = time.time()
-    #         layer_mu = np.mean([np.mean(w) for w in layer_data])
-    #         layer_sigma = np.mean([np.std(w) for w in layer_data])
-    #         layer_max = max([np.max(w) for w in layer_data])
-    #         layer_min = min([np.min(w) for w in layer_data])
-    #         stats_time = time.time() - stats_start
-    #         self.time_stats['statistics'].append(stats_time)
-
-    #         # Step 3: Quantize layer-wise
-    #         quant_start = time.time()
-    #         quantized_layer = []
-    #         for client_weights in layer_data:
-    #             quantized, params = self.quantizer.quantize_weights_unified(
-    #                 client_weights,
-    #                 n_bits=14,
-    #                 method="naive",
-    #                 global_max=layer_max,
-    #                 global_min=layer_min,
-    #                 mu=layer_mu,
-    #                 sigma=layer_sigma,
-    #                 sigma_bits=[8, 8, 8, 8, 8]
-    #             )
-    #             quantized_layer.append(quantized)
-    #         quant_time = time.time() - quant_start
-    #         self.time_stats['quantization'].append(quant_time)
-
-    #         # Step 4: Encrypt layer-wise
-    #         encrypt_start = time.time()
-    #         encrypted_chunks = []
-    #         for q_weights in quantized_layer:
-    #             # Split into chunks, ensuring no empty chunks
-    #             chunk_start = time.time()
-    #             chunks = [q_weights[i * self.chunk_size:(i + 1) * self.chunk_size] 
-    #                     for i in range((len(q_weights) + self.chunk_size - 1) // self.chunk_size)]
-    #             chunks = [c for c in chunks if len(c) > 0]
-    #             chunk_time = time.time() - chunk_start
-    #             self.time_stats['chunking'].append(chunk_time)
-
-    #             # Encrypt non-empty chunks
-    #             encrypt_chunk_start = time.time()
-    #             encrypted_chunks.append([ts.bfv_vector(self.context, c) for c in chunks])
-    #             encrypt_chunk_time = time.time() - encrypt_chunk_start
-    #             self.time_stats['encryption'].append(encrypt_chunk_time)
-    #         encrypt_time = time.time() - encrypt_start
-    #         self.time_stats['encryption'].append(encrypt_time)
-
-    #         # Step 5: Aggregate encrypted chunks
-    #         agg_start = time.time()
-    #         agg_encrypted = [sum(chunks) for chunks in zip(*encrypted_chunks)]
-    #         agg_time = time.time() - agg_start
-    #         self.time_stats['aggregation'].append(agg_time)
-
-    #         # Step 6: Decrypt
-    #         decrypt_start = time.time()
-    #         decrypted = [chunk.decrypt(self.context.secret_key()) for chunk in agg_encrypted]
-    #         decrypted_flat = np.concatenate(decrypted) / len(results)
-    #         decrypt_time = time.time() - decrypt_start
-    #         self.time_stats['decryption'].append(decrypt_time)
-
-    #         # Step 7: Dequantize
-    #         dequant_start = time.time()
-    #         dequantized = np.array(self.quantizer.dequantize_weights_unified(decrypted_flat, params))
-    #         dequant_time = time.time() - dequant_start
-    #         self.time_stats['dequantization'].append(dequant_time)
-
-    #         # Step 8: Reshape and store
-    #         reshape_start = time.time()
-    #         aggregated_layers.append(dequantized.reshape(layer_shapes[layer_idx]))
-    #         reshape_time = time.time() - reshape_start
-    #         self.time_stats['reshaping'].append(reshape_time)
-
-        aggregated_layers = parameters_to_ndarrays(results[0][1].parameters)
-        # Convert back to Flower parameters
-        return ndarrays_to_parameters(aggregated_layers), {}
+        # Process quantized layers
+        final_state_dict = OrderedDict()
+      
+        for name, layer in quantized_layers.items():
+            # Calculate global max and min
+            all_weights = np.concatenate([w.flatten() for w in layer['weights']])
+            global_max = np.max(all_weights)
+            global_min = np.min(all_weights)
+            shape = layer['shape']
+            encrypted_weights = None
     
+            for weight in layer['weights']:
+        
+                # Quantize weight
+                quant_start = time.time()
+                quantized_weight, quant_params = self._quantize_weights(weight, global_max, global_min)
+                self.time_stats["quantization"].append(time.time() - quant_start)
+        
+    
+                # Encrypt weights
+                enc_start = time.time()
+                encrypted_weight = self._encrypt_weights(quantized_weight)
+                self.time_stats["encryption"].append(time.time() - enc_start)
+                
+                # Aggregate encrypted weights
+                if encrypted_weights is None:
+                    encrypted_weights = encrypted_weight
+                else:
+                    for i, weight in enumerate(encrypted_weight):
+                        encrypted_weights[i] += weight
+                
+         
+            # Decrypt weights
+            dec_start = time.time()
+            decrypted_weights = self._decrypt_weights(encrypted_weights)
+            self.time_stats["decryption"].append(time.time() - dec_start)
+            
+            decrypted_weights = decrypted_weights / len(layer['weights'])
+            
+            # Dequantize weights
+            dequant_start = time.time()
+            dequantized_weights = self._dequantize_weights(decrypted_weights, quant_params)
+            self.time_stats["dequantization"].append(time.time() - dequant_start)
+            
    
+            # Reshape and store in final state dict
+            if dequantized_weights.size != np.prod(shape):
+                raise ValueError(f"Size mismatch: expected {np.prod(shape)}, got {dequantized_weights.size}")
+            final_state_dict[name] = torch.tensor(dequantized_weights.reshape(shape))
+        
+        # Process non-quantized layers (direct averaging)
+        for name, weights in non_quantized_layers.items():
+            final_state_dict[name] = torch.tensor(np.mean(weights, axis=0))
+        
+        # Compare the final state dict with the original state dict
+       
+        
+        # Save aggregated parameters
+        torch.save(final_state_dict, self.aggregated_path)
+        
+        # Call parent's aggregate method
+        aggregated_parameters = super().aggregate_fit(server_round, results, failures)
+        return aggregated_parameters
 
     def aggregate_evaluate(self, server_round, results, failures):
         """
         Called after evaluation. If it's the last round, we can print out the total comm.
         """
-        aggregated_metrics = super().aggregate_evaluate(server_round, results, failures)
-        
-        # If we just finished the final round
-        if server_round == self.num_rounds:
-            print(f"[aggregate_evaluate] All {self.num_rounds} rounds completed.")
-            # Print the total communication in GB
-            print(f"Total communication = {self.total_comm_bytes / 1024**3} GB")
-            # Create a csv file with the total communication
-            total_comm_bytes_str = str(self.total_comm_bytes / 1024**3)
-            with open("total_communication.csv", "w") as f:
-                f.write(f"Total communication (GB),{total_comm_bytes_str}")
-            f.close()
-            # 保存聚合时间统计
-            self._save_time_stats()
-        return aggregated_metrics
+        aggregated_loss, aggregated_metrics = super().aggregate_evaluate(server_round, results, failures)
 
-    def _save_time_stats(self):
-        """保存服务器端的时间统计"""
-        stats_path = "server_time_stats.csv"
+        # Compute the average accuracy
+        accuracy = []
+        for _, res in results:
+            if res.metrics and 'accuracy' in res.metrics:
+                accuracy.append(res.metrics['accuracy'])
+                
+        avg_accuracy = np.mean(accuracy)
+        
+        self.evaluation_metrics.append({
+            'server_round': server_round,
+            'accuracy': avg_accuracy,
+            'loss': aggregated_loss,
+        })
+   
+        
+        if server_round == self.num_rounds:
+            self._save_communication()
+            self._save_time_stats()
+            self._save_evaluation_metrics()
+            
+        return aggregated_loss, aggregated_metrics
+    
+    def _save_evaluation_metrics(self):
+        """save the evaluation metrics to a CSV file."""
         try:
-            with open(stats_path, "w") as f:
-                f.write("operation,round,time\n")
-                for operation, times in self.time_stats.items():
-                    for i, time in enumerate(times):
-                        f.write(f"{operation},{i},{time}\n")
-            print(f"Server time statistics saved to {stats_path}")
+            with open("evaluation_metrics.csv", "w") as f:
+                f.write("round,accuracy,loss\n")
+                for metrics in self.evaluation_metrics:
+                    f.write(f"{metrics['server_round']},{metrics['accuracy']},{metrics['loss']}\n")
+            print("Evaluation metrics saved successfully")
         except Exception as e:
-            print(f"Error saving server time statistics: {str(e)}")
+            print(f"Error saving evaluation metrics: {str(e)}")
+
+    def _save_communication(self):
+        """Save the communication statistics to a CSV file."""
+        total_comm_bytes_str = str(self.total_comm_bytes / 1024 ** 3)
+        with open("total_communication.csv", "w") as f:
+            f.write(f"Total communication (GB),{total_comm_bytes_str}")
+        f.close()
+        
+    def _save_time_stats(self):
+        """save the server time statistics to a CSV file."""
+        stats_path = "server_time_stats.csv"
+        with open(stats_path, "w") as f:
+            f.write("operation,time\n")
+            for operation, times in self.time_stats.items():
+                for t in times:
+                    f.write(f"{operation},{t}\n")
+        f.close()
+        print(f"Time statistics saved to {stats_path}")
+        
 
 def create_server_fn(num_rounds, min_fit_clients, min_evaluate_clients, min_available_clients) -> ServerApp:
     """
@@ -230,14 +290,14 @@ def create_server_fn(num_rounds, min_fit_clients, min_evaluate_clients, min_avai
     def server_fn(context: Context, **kwargs) -> ServerAppComponents:
         config = ServerConfig(num_rounds=num_rounds)
         strategy = MyFlowerStrategy(
+            num_rounds=num_rounds,
             fraction_fit=min_fit_clients/num_rounds,
             fraction_evaluate=min_evaluate_clients/num_rounds,
             min_fit_clients=min_fit_clients,
             min_evaluate_clients=min_evaluate_clients,
             min_available_clients=min_available_clients,
             on_fit_config_fn=fit_config,
-            on_evaluate_config_fn=evaluate_config_factory(num_rounds),
-            num_rounds=num_rounds
+            on_evaluate_config_fn=evaluate_config_factory(num_rounds)
         )         
         return ServerAppComponents(strategy=strategy, config=config)
 
@@ -249,30 +309,33 @@ if __name__ == "__main__":
     NUM_CLIENTS = 1
     MIN_CLIENTS = 1
     
-    # Get the hostname
+    # 使用完整的主机名
     hostname = socket.gethostname()
     SERVER_ADDRESS = f"{hostname}:8080"
     print(f"Server will listen on {SERVER_ADDRESS}")
     
     my_strategy = MyFlowerStrategy(
+        num_rounds=NUM_ROUNDS,
         fraction_fit=MIN_CLIENTS/NUM_CLIENTS,  
         fraction_evaluate=MIN_CLIENTS/NUM_CLIENTS,  
         min_fit_clients=MIN_CLIENTS,      
         min_evaluate_clients=MIN_CLIENTS,  
         min_available_clients=MIN_CLIENTS, 
         on_fit_config_fn=fit_config,
-        on_evaluate_config_fn=evaluate_config_factory(NUM_ROUNDS),
-        num_rounds=NUM_ROUNDS
+        on_evaluate_config_fn=evaluate_config_factory(NUM_ROUNDS)
     )
     
-  
+    # 保存完整的服务器地址
     with open("server_address.txt", "w") as f:
         f.write(SERVER_ADDRESS)
     
-    
+
+    # 启动服务器时使用完整地址
     fl.server.start_server(
         server_address = SERVER_ADDRESS,  # 使用相同的地址
         config = fl.server.ServerConfig(num_rounds=NUM_ROUNDS),
         grpc_max_message_length = 1024 * 1024 * 1024,
-        strategy = my_strategy,
+        strategy = my_strategy
     )
+    
+    
