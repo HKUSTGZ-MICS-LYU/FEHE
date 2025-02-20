@@ -27,7 +27,7 @@ client:
 clients:
 	while [ ! -f server_address.txt ]; do sleep 1; done
 	for i in $$(seq 0 $(shell echo $$(($(NUM_CLIENTS) - 1)))); do \
-		$(BSUB) $(PYTHON) $(CLIENT_SCRIPT) --partition-id=$$i --CLIENT_NUMER=$(NUM_CLIENTS) & \
+		$(BSUB) $(PYTHON) $(CLIENT_SCRIPT) --partition_id=$$i --client_number=$(NUM_CLIENTS) & \
 	done
 	wait  # 等待所有后台任务完成
 

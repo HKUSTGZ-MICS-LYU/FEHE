@@ -1,28 +1,52 @@
-from collections import OrderedDict, defaultdict
+# Standard library imports
+import json
 import os
+import socket
+import time
+from collections import OrderedDict, defaultdict
+from typing import Dict, List, Tuple, Optional
+
+# Third party imports
+import argparse
+import flwr as fl
+import numpy as np
+import tenseal as ts
+import torch
 from flwr.common import Context, Scalar
 from flwr.server import ServerApp, ServerConfig, ServerAppComponents
 from flwr.server.strategy import FedAvg
-import flwr as fl
-import numpy as np
-import torch
-import encryption
-import filedata as fd
-import tenseal as ts
-import socket
-import time
-from typing import Dict, List, Tuple, Optional
 
-from quantization import Quantizer
+# Local imports
+from utils import encryption
+from utils import filedata as fd
+from utils.quantization import Quantizer
 
 
-# Configure the fit parameters for clients 
+def load_client_config():
+    try:
+        with open("client_config.json", "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        print("Client config file not found. Using default values.")
+        return {
+            "lr": 0.01,
+            "epochs": 10,
+            "batch_size": 32,
+            "scheduler": "cosine",
+            "model": "ResNet18",
+            "dataset": "cifar10",
+        }
+
+
 def fit_config(server_round: int):
-    config = {
+    client_config = load_client_config()
+    return {
         "server_round": server_round,
-        "local_epochs": 1,  
+        "local_epochs": 1,
+        "lr": client_config["lr"],
+        "scheduler": client_config["scheduler"],
+        "total_rounds": 100,
     }
-    return config
 
 # Configure the evaluation parameters for clients
 def evaluate_config_factory(num_rounds: int):

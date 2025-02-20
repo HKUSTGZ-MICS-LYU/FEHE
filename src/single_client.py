@@ -21,7 +21,7 @@ import torchvision.transforms as transforms
 
 # Local imports
 from models import *
-from quantization import *
+from utils.quantization import *
 
 
 
@@ -66,7 +66,7 @@ def load_dataset(dataset_name, batch_size=128):
     testloader = DataLoader(testset, batch_size=100, shuffle=False, num_workers=2)
     return trainloader, testloader, num_classes
 
-def train_model(model, trainloader, criterion, optimizer, device, epochs=100, quantize=False, testloader=None, n_bits=8, method='sigma', dataset_name='Dataset'):
+def train_model(model, trainloader, criterion, optimizer, device, epochs=100, quantize=False, testloader=None, n_bits=8, method='sigma', model_name = 'model', dataset_name='Dataset'):
     model.to(device)
     model.train()
     best_acc = 0
@@ -109,7 +109,7 @@ def train_model(model, trainloader, criterion, optimizer, device, epochs=100, qu
         if test_acc > best_acc:
             print(f"Saving model with test accuracy of {test_acc:.2f}% at epoch {epoch+1}")
             best_acc = test_acc
-            torch.save(model.state_dict(), f'{model.__class__.__name__}_{dataset_name}_best.pth')
+            torch.save(model.state_dict(), f'../Experiment/{model_name}_{dataset_name}/{model_name}_{dataset_name}_best.pth')
 
     return train_accs, test_accs, quant_accs
 
@@ -233,7 +233,7 @@ def plot_results(train_accs, test_accs, quant_accs=None, model_name='Model', dat
     plt.tight_layout()
     
     # Save with higher quality
-    plt.savefig(f'{model_name}_{dataset_name}_results.png', 
+    plt.savefig(f'../Experiment/{model_name}_{dataset_name}/{model_name}_{dataset_name}_results.png', 
                 bbox_inches='tight',
                 dpi=300)
     plt.close()
@@ -260,7 +260,7 @@ def main():
                                                         ], default='LeNet5')
     parser.add_argument('--dataset', type=str, choices=['CIFAR10', 'CIFAR100', 'FASHIONMNIST'], default='CIFAR10')
     parser.add_argument('--lr', type=float, default=0.01)
-    parser.add_argument('--epochs', type=int, default=100)
+    parser.add_argument('--epochs', type=int, default=10)
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--quantize', default= True, action='store_true', help='Enable quantization evaluation')
     parser.add_argument('--n_bits', type=int, default=8, help='Bits for quantization')
@@ -344,12 +344,18 @@ def main():
         quantize=args.quantize,
         testloader=testloader,
         n_bits=args.n_bits,
+        model_name=args.model,
         dataset_name=args.dataset
     )
 
     # 保存结果和绘图
-    plot_results(train_accs, test_accs, quant_accs if args.quantize else None, 
-                model.__class__.__name__, args.dataset)
+    plot_results(
+        train_accs, 
+        test_accs, 
+        quant_accs if args.quantize else None, 
+        args.model, 
+        args.dataset)
+    print('Training complete.')
 
 if __name__ == '__main__':
     main()

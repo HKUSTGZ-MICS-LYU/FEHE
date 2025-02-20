@@ -1,15 +1,23 @@
+# Standard library imports
 import argparse
-import numpy as np
-import flwr as fl
-from flwr.common import  Context
-from flwr.client import Client, NumPyClient, ClientApp
-import torch
-from globals import MODEL_MAP
-from utils import get_parameters, set_parameters
-from train import train
-from test import test
-from dataloader import load_datasets
 import time
+import json
+
+# Third-party imports
+import numpy as np
+import torch
+import torch.backends.cudnn as cudnn
+import flwr as fl
+from flwr.common import Context
+from flwr.client import Client, NumPyClient, ClientApp
+
+# Local imports
+from models import *
+from utils.utils import get_parameters, set_parameters
+from utils.train import train
+from utils.test import test
+from utils.dataloader import load_datasets
+
 
  
 
@@ -32,11 +40,20 @@ class FlowerClient(NumPyClient):
         return get_parameters(self.net)
 
     def fit(self, parameters, config):
-        
+        print(config)
         set_parameters(self.net, parameters)
         
+        full_config = {
+            "initial_lr": 0.1,
+            "min_lr": 0.001,
+            "scheduler": args.scheduler,
+            "total_rounds": config["total_rounds"],
+            "server_round": config["server_round"],
+            **config
+        }
+        
         train_start = time.time()
-        train(self.net, self.trainloader, epochs=config["local_epochs"], verbose=True)
+        train(self.net, self.trainloader, epochs=config["local_epochs"], config=full_config, verbose=True)
         train_time = time.time() - train_start
         self.time_stats['train'].append(train_time)
 
@@ -121,7 +138,7 @@ def client_fn(context) -> Client:
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("THE DEVICE IS", DEVICE)
     
-    net = MODEL_MAP[MODEL_NAME]().to(DEVICE)
+
     partition_id = context.node_config["partition-id"]
     trainloader, valloader, _ = load_datasets(DATASET_NAME, 
                                             CLIENT_NUMER, 
@@ -129,9 +146,42 @@ def client_fn(context) -> Client:
                                             partition_id=partition_id,
                                             federated=True
                                             )
-
-
-    return FlowerClient(partition_id, net, trainloader, valloader).to_client()
+    if MODEL_NAME == 'LeNet5':
+        model = LeNet5()
+    elif MODEL_NAME == 'ResNet18':
+        model = ResNet18()
+    elif MODEL_NAME == 'VGG19':
+        model = VGG('VGG19')
+    elif MODEL_NAME == 'PreActResNet18':
+        model = PreActResNet18()
+    elif MODEL_NAME == 'GoogLeNet':
+        model = GoogLeNet()
+    elif MODEL_NAME == 'DenseNet121':
+        model = DenseNet121()
+    elif MODEL_NAME == 'ResNeXt29_2x64d':
+        model = ResNeXt29_2x64d()
+    elif MODEL_NAME == 'MobileNet':
+        model = MobileNet()
+    elif MODEL_NAME == 'MobileNetV2':
+        model = MobileNetV2()
+    elif MODEL_NAME == 'DPN92':
+        model = DPN92()
+    elif MODEL_NAME == 'ShuffleNetG2':
+        model = ShuffleNetG2()
+    elif MODEL_NAME == 'SENet18':
+        model = SENet18()
+    elif MODEL_NAME == 'ShuffleNetV2':
+        model = ShuffleNetV2(1)
+    elif MODEL_NAME == 'EfficientNetB0':
+        model = EfficientNetB0()
+    elif MODEL_NAME == 'RegNetX_200MF':
+        model = RegNetX_200MF()
+    elif MODEL_NAME == 'SimpleDLA':
+        model = SimpleDLA()
+        
+    model = model.to(DEVICE)
+    
+    return FlowerClient(partition_id, model, trainloader, valloader).to_client()
 
 
 
@@ -146,52 +196,130 @@ def create_client_fn(batch_size, num_supernodes, model_name, dataset_name):
         context.node_config["dataset"] = dataset_name
         return client_fn(context)
 
-    # 给 ClientApp 的 `client_fn` 参数传一个函数，而不是一个已经实例化的 Client
+    # Return the client creation function
     client_app = ClientApp(client_fn=client_creation_func)
     return client_app
 
-# 在启动客户端之前，读取服务器地址
+# The following code snippet is from src/create_client.py
 def get_server_address():
     with open("server_address.txt", "r") as f:
         return f.read().strip()
 
+
+def save_args_to_config(args):
+    config = {
+        "lr": args.lr,
+        "min_lr": 0.001,
+        "epochs": args.epochs,
+        "batch_size": args.batch_size,
+        "scheduler": args.scheduler,
+        "model": args.model,
+        "dataset": args.dataset,
+    }
+    with open("client_config.json", "w") as f:
+        json.dump(config, f)
+        
 if __name__ == "__main__":
     """Create a Flower client representing a single organization."""
-    BATCH_SIZE = 32
-    DATASET_NAME = "cifar10"
+    
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    net = MODEL_MAP['ResNet18']().to(DEVICE)
     parser = argparse.ArgumentParser(description="Flower Client")
-    parser.add_argument("--partition-id", type=int, default=0, help="Partition ID")
-    parser.add_argument("--CLIENT_NUMER", type=int, default=10, help="Number of clients")
+    # Client configuration
+    parser.add_argument("--partition_id", type=int, default=0, 
+                       help="Partition ID")
+    parser.add_argument("--client_number", type=int, default=10, 
+                       help="Number of clients")
+    # Training parameters
+    parser.add_argument("--lr", type=float, default=0.01, 
+                       help="Learning rate")
+    parser.add_argument("--scheduler", type=str, default="cosine",
+                        choices=["cosine", "step"])
+    parser.add_argument("--epochs", type=int, default=100, 
+                       help="Number of epochs")
+    parser.add_argument("--batch_size", type=int, default=128, 
+                       help="Batch size")
+    # Model selection
+    model_choices = [   
+                        'LeNet5',       'ResNet18m',        'VGG19',        'PreActResNet18',   'GoogLeNet',
+                        'DenseNet121',  'ResNeXt29_2x64d',  'MobileNet',    'MobileNetV2',      'DPN92',
+                        'ShuffleNetG2', 'SENet18',          'ShuffleNetV2', 'EfficientNetB0',   'RegNetX_200MF',
+                        'SimpleDLA'
+                    ]
     
+    parser.add_argument("--model", type=str, default="ResNet18",
+                       help="Model name", choices=model_choices)
+    
+    parser.add_argument("--dataset", type=str, default="CIFAR10",
+                       help="Dataset name", choices=["CIFAR10", "CIFAR100","FASHIONMNIST"])
+        
     args = parser.parse_args()
-    partition_id = args.partition_id
-    CLIENT_NUMER = args.CLIENT_NUMER
-    
-    # 加载数据集
+    save_args_to_config(args)
+   
+    # Match the model name to the model class
+    if args.model == "LeNet5":
+        args.dataset = "FASHIONMNIST"
+    elif args.dataset == 'FAshionMNIST':
+        args.model = 'LeNet5'
+        
+    if args.model == 'LeNet5':
+        model = LeNet5()
+    elif args.model == 'ResNet18':
+        model = ResNet18()
+    elif args.model == 'VGG19':
+        model = VGG('VGG19')
+    elif args.model == 'PreActResNet18':
+        model = PreActResNet18()
+    elif args.model == 'GoogLeNet':
+        model = GoogLeNet()
+    elif args.model == 'DenseNet121':
+        model = DenseNet121()
+    elif args.model == 'ResNeXt29_2x64d':
+        model = ResNeXt29_2x64d()
+    elif args.model == 'MobileNet':
+        model = MobileNet()
+    elif args.model == 'MobileNetV2':
+        model = MobileNetV2()
+    elif args.model == 'DPN92':
+        model = DPN92()
+    elif args.model == 'ShuffleNetG2':
+        model = ShuffleNetG2()
+    elif args.model == 'SENet18':
+        model = SENet18()
+    elif args.model == 'ShuffleNetV2':
+        model = ShuffleNetV2(1)
+    elif args.model == 'EfficientNetB0':
+        model = EfficientNetB0()
+    elif args.model == 'RegNetX_200MF':
+        model = RegNetX_200MF()
+    elif args.model == 'SimpleDLA':
+        model = SimpleDLA()
+        
+    model = model.to(DEVICE)
+    if DEVICE == 'cuda':
+        model = torch.nn.DataParallel(model)
+        cudnn.benchmark = True
+
     trainloader, valloader, _ = load_datasets(
-        DATASET_NAME, 
-        CLIENT_NUMER, 
-        BATCH_SIZE,
-        partition_id=partition_id,
-        federated=True
+        DATASET_NAME    =   args.dataset, 
+        CLIENT_NUMER    =   args.client_number, 
+        BATCH_SIZE      =   args.batch_size,
+        PARTITION_ID    =   args.partition_id,
+        FEDERATED       =   True
     )
     
-    # 获取服务器地址
+    # Obtain the address of the server
     server_address = get_server_address()
     print(f"Connecting to server at {server_address}")
     
-    # 创建客户端实例，提供所有必需的参数
+    # Create a Flower client
     client = FlowerClient(
-        pid=partition_id,
-        net=net,
-        trainloader=trainloader,
-        valloader=valloader
+        pid             =   args.partition_id,
+        net             =   model,  
+        trainloader     =   trainloader,
+        valloader       =   valloader
     )
     
-    # 启动客户端
+    # Start the Flower
     fl.client.start_numpy_client(
         server_address=server_address,
         client=client,
