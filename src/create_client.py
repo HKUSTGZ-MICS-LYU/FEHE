@@ -41,11 +41,10 @@ from utils.utils import get_parameters, set_parameters
 @dataclass
 class ClientConfig:
     """Client configuration dataclass."""
-    partition_id: int = 0
-    client_number: int = 1
+    partition_id: int 
+    client_number: int 
     lr: float = 0.01
     scheduler: str = "cosine"
-    epochs: int = 100
     batch_size: int = 128
     model_name: str = "LeNet5"
     dataset_name: str = "FASHIONMNIST"
@@ -76,32 +75,33 @@ class SecureClient(NumPyClient):
 
     def fit(
         self,
-        parameters: NDArrays,
-        config: Dict[str, Scalar]
+        parameters,
+        config
     ) -> Tuple[NDArrays, int, Dict[str, Scalar]]:
         """Train model on local data with enhanced security measures."""
+    
+        
         set_parameters(self.model, parameters)
         
         server_round = config.get("server_round", 1)
-        
-        initial_lr = self.config.lr
-        current_lr = initial_lr * (0.1 ** (server_round // 30))
+        current_lr = self.config.lr * (0.1 ** (server_round // 30))
         
         # Merge configuration
         full_config = {
             "lr": current_lr,
             "min_lr": 0.001,
             "scheduler": self.config.scheduler,
-            "total_rounds": self.config.epochs,
-            "server_round": server_round,
+            "total_rounds": 10,
+            "server_round": config.get("server_round"),
             **config
         }
   
         # Training phase
         start_time = time.time()
         train(
-            self.model, self.trainloader,
-            epochs=1,
+            net = self.model, 
+            trainloader = self.trainloader,
+            epochs = 1,
             config=full_config,
             verbose=True
         )
@@ -119,12 +119,10 @@ class SecureClient(NumPyClient):
         config: Dict[str, Scalar]
     ) -> Tuple[float, int, Dict[str, Scalar]]:
         """Evaluate the model on local data."""  
-        print(f"Received Config: {config}")
-        server_round = config.get("current_round")   
-         
+        
         full_config = {
-            "server_round": server_round,
-            "total_rounds": config.get("total_rounds", self.config.epochs),
+            "server_round": config.get("server_round"),
+            "total_rounds": 10,
             **config
         }
     
@@ -135,14 +133,11 @@ class SecureClient(NumPyClient):
         
         # Evaluation
         loss, accuracy = test(self.model, self.valloader, verbose=True)
-        self.accuracy_log[full_config["server_round"]] = accuracy
-      
-        # Final round processing
-        print("="*50)
-        print(f"Round {full_config['server_round']} Accuracy: {accuracy:.4f}")
-        print("="*50)
+          
+        self.accuracy_log[config.get("server_round")] = accuracy
         
-        if server_round == full_config["total_rounds"]:
+        
+        if config.get("server_round") == full_config["total_rounds"]:
             self._finalize_training()
         
         return loss, len(self.valloader), {"accuracy": float(accuracy)}
@@ -164,7 +159,7 @@ class SecureClient(NumPyClient):
         try:
             with open(csv_path, "w") as f:
                 f.write("round,accuracy\n")
-                for rnd, acc in sorted(self.epoch_accuracy.items()):
+                for rnd, acc in sorted(self.accuracy_log.items()):
                     f.write(f"{rnd},{acc}\n")
             print(f"Accuracy log saved to {csv_path}")
         except Exception as e:
@@ -176,7 +171,7 @@ class SecureClient(NumPyClient):
         try:
             with open(stats_path, "w") as f:
                 f.write("operation,round,time\n")
-                for operation, times in self.time_stats.items():
+                for operation, times in self.time_metrics.items():
                     for round_num, t in enumerate(times, 1):
                         f.write(f"{operation},{round_num},{t}\n")
             print(f"Time statistics saved to {stats_path}")
@@ -235,26 +230,25 @@ def client_fn(context: Context) -> fl.client.Client:
 def main():
     """Main client execution flow."""
     parser = argparse.ArgumentParser(description="Secure Federated Learning Client")
-    parser.add_argument("--partition-id", type=int, default=0)
-    parser.add_argument("--client-number", type=int, default=1)
-    parser.add_argument("--lr", type=float, default=0.01)
-    parser.add_argument("--scheduler", choices=["cosine", "step"], default="cosine")
-    parser.add_argument("--epochs", type=int, default=100)
-    parser.add_argument("--batch-size", type=int, default=128)
-    parser.add_argument("--model_name", type=str, default="LeNet5")
-    parser.add_argument("--dataset_name", type=str, default="FASHIONMNIST")
-    
+    parser.add_argument("--partition-id",   type=int,   default=0)
+    parser.add_argument("--client-number",  type=int,   default=1)
+    parser.add_argument("--lr",             type=float, default=0.01)
+    parser.add_argument("--scheduler",      type=str,   default="cosine", choices=["cosine", "step"])
+    parser.add_argument("--batch-size",     type=int,   default=128)
+    parser.add_argument("--model_name",     type=str,   default="LeNet5")
+    parser.add_argument("--dataset_name",   type=str,   default="FASHIONMNIST")
     args = parser.parse_args()
     config = ClientConfig(**vars(args))
+    
     
     # Initialize components
     model = load_model(config.model_name, config.dataset_name)
     trainloader, valloader, _ = load_datasets(
-        config.dataset_name,
-        config.client_number,
-        config.batch_size,
-        config.partition_id,
-        True
+        DATASET_NAME = config.dataset_name,
+        CLIENT_NUMER = config.client_number,
+        BATCH_SIZE   = config.batch_size,
+        PARTITION_ID = config.partition_id,
+        FEDERATED    = True
     )
     
     # Start client

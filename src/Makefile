@@ -1,17 +1,17 @@
 # 定义变量
 PYTHON = python3
-BSUB = bsub -q gpu -Is -gpu "num=1"
+# BSUB = bsub -q gpu -Is -gpu "num=1"
 SERVER_SCRIPT = create_server.py
 CLIENT_SCRIPT = create_client.py
 SRC_DIR = encrypted
-NUM_CLIENTS = 3
+NUM_CLIENTS = 5
 # 默认目标
 all: 
 	@echo "Please specify a target !!!"
 
 plot: 
-	$(BSUB) $(PYTHON) plot_accuracy.py
-	$(BSUB) $(PYTHON) plot_time_stat.py
+	$(BSUB) $(PYTHON) utils/plot_accuracy.py
+	$(BSUB) $(PYTHON) utils/plot_time_stat.py
 	
 # 运行 create_server.py
 server:
@@ -27,7 +27,7 @@ client:
 clients:
 	while [ ! -f server_address.txt ]; do sleep 1; done
 	for i in $$(seq 0 $(shell echo $$(($(NUM_CLIENTS) - 1)))); do \
-		$(BSUB) $(PYTHON) $(CLIENT_SCRIPT) --partition_id=$$i --client_number=$(NUM_CLIENTS) & \
+		$(BSUB) $(PYTHON) $(CLIENT_SCRIPT) --partition-id=$$i --client-number=$(NUM_CLIENTS) & \
 	done
 	wait  # 等待所有后台任务完成
 

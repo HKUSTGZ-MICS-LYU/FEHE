@@ -1,24 +1,18 @@
 import torch
 from torch.optim.lr_scheduler import StepLR, CosineAnnealingLR
 
-
-    
-
-def train(net, trainloader, epochs: int, config: dict, verbose=False):
+def train(
+        net, 
+        trainloader, 
+        epochs: int, 
+        config: dict, 
+        verbose=False
+    ):
     """Train the network on the training set."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     net = net.to(device)
     criterion = torch.nn.CrossEntropyLoss()
-    
-    initial_lr = config.get("lr", 0.1)
-    optimizer = torch.optim.SGD(
-        net.parameters(), 
-        lr=initial_lr,
-        momentum=0.9, 
-        weight_decay=5e-4
-    )
 
-    scheduler_type = config.get("scheduler_step", "cosine")
     optimizer = torch.optim.SGD(net.parameters(), 
                                 lr=config.get("lr"), 
                                 momentum=0.9, 
@@ -35,8 +29,6 @@ def train(net, trainloader, epochs: int, config: dict, verbose=False):
     
     net.train()
     
-    for _ in range(config['server_round']):
-        scheduler.step()
         
     for epoch in range(epochs):
         correct, total, epoch_loss = 0, 0, 0.0
@@ -79,5 +71,5 @@ def train(net, trainloader, epochs: int, config: dict, verbose=False):
         epoch_acc = correct / total
         if verbose:
             print(f"Train loss {epoch_loss}, accuracy {epoch_acc}")
-
+    
 

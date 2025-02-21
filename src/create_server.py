@@ -5,6 +5,7 @@
 # Standard library imports
 import logging
 import socket
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,37 +27,51 @@ from utils import encryption
 from utils import filedata as fd
 from utils.quantization import Quantizer
 
+def fit_config(server_round: int) -> Dict:
+    """Return a configuration with static number of rounds."""
+    config = {
+        "server_round": server_round,
+        "local_epochs": 1,
+    }
+    return config
 
+def evaluate_config(server_round: int) -> Dict:
+    """Return a configuration with static number of rounds."""
+    config = {
+        "server_round": server_round,
+    }
+    return config
 
 @dataclass
 class ServerConfig:
     """Server configuration parameters."""
-    num_rounds: int = 100
-    server_round: int = 1
-    min_clients: int = 1
-    min_evaluate_clients: int = 1  # 改为1
-    min_available_clients: int = 1  # 改为1
+    num_rounds: int = 20
+    min_clients: int = 2
+    min_evaluate_clients: int = 2
+    min_available_clients: int = 5
     poly_modulus_degree: int = 4096
     plain_modulus: int = 1032193
     quant_bits: int = 8
     quant_method: str = "naive"
     encrypted_dir: str = "encrypted"
-    current_round: int = 1
+    round_timeout: Optional[float] = None
     
 
 class SecureAggregationStrategy(FedAvg):
     """Custom aggregation strategy with secure enclave operations."""
-    
     def __init__(self, config: ServerConfig):
         super().__init__(
-            fraction_fit=1.0, 
-            fraction_evaluate=1.0,
-            min_fit_clients=1,  
-            min_evaluate_clients=1,
-            min_available_clients=1,
-            initial_parameters=None  # 可以设置初始参数
+            fraction_fit            =   config.min_clients / config.min_available_clients,
+            fraction_evaluate       =   1.0,
+            min_fit_clients         =   config.min_clients,
+            min_evaluate_clients    =   config.min_evaluate_clients,
+            min_available_clients   =   config.min_available_clients,
+            initial_parameters      =   None,
+            evaluate_fn             =   None,
+            on_fit_config_fn        =   fit_config,
+            on_evaluate_config_fn   =   evaluate_config,
         )
-        self.config = config
+        self.config  = config
         self.context = encryption.create_context(
             config.poly_modulus_degree,
             config.plain_modulus
@@ -66,7 +81,6 @@ class SecureAggregationStrategy(FedAvg):
         self.quantizer = Quantizer()
   
 
-        
     def _initialize_metrics(self) -> None:
         """Initialize metrics tracking structures."""
         self.time_metrics = {
@@ -77,13 +91,12 @@ class SecureAggregationStrategy(FedAvg):
             "decryption": [],
             "dequantization": []
         }
-        self.evaluation_log = []
         self.total_communication = 0  
+        self.evaluation_log = []
     
     
     def aggregate_fit(self, server_round: int, results, failurs):
         """Secure aggregation pipeline with homomorphic encryption."""
-        
         
         # Phase 1: Parameter Collection
         client_params = self._collect_client_parameters(results)
@@ -98,12 +111,10 @@ class SecureAggregationStrategy(FedAvg):
         # Phase 4: Reshape and save aggregated parameters
         reshaped_params = OrderedDict()
         for name in aggregated_params:
-            shape = next(p[name].shape for p in client_params)  # 获取对应参数形状
+            shape = next(p[name].shape for p in client_params)  
             reshaped_params[name] = aggregated_params[name].view(shape)
     
-        torch.save(reshaped_params, f"{self.config.encrypted_dir}/aggregated_params.pth")
-        fit_metrics = {"current_round": self.config.current_round}
-        # print(f"Server Current Round: {self.config.current_round}")
+        torch.save(reshaped_params, f"{self.config.encrypted_dir}/aggregated_params.pth")        
         return super().aggregate_fit(server_round, results, failurs)
 
     def _collect_client_parameters(self, results) -> List[Dict]:
@@ -146,7 +157,9 @@ class SecureAggregationStrategy(FedAvg):
     def _process_quantized_layers(self, layers: Dict) -> Dict:
         """Process quantized layers with full encryption pipeline."""
         processed = {}
+    
         for name, weights in layers.items():
+        
             # Quantization
             q_start = time.time()
             quantized, params = self._quantize_batch(weights)
@@ -156,31 +169,44 @@ class SecureAggregationStrategy(FedAvg):
             e_start = time.time()
             encrypted = [self._encrypt(w) for w in quantized]
             self.time_metrics["encryption"].append(time.time() - e_start)
+        
             
+            # Obtain communication size of encrypted data (in bytes)
+            # use sys to get the size of the encrypted data
+            self.total_communication += sum(sys.getsizeof(e) for e in encrypted)
             
             # Aggregation
             a_start = time.time()
-            aggregated = None
-            for i in range(len(encrypted)):
-                if aggregated is None:
-                    aggregated = encrypted[i]
-                else:
-                    aggregated += encrypted[i]
+            aggregated = []
+            for i in range(len(encrypted[0])):
+                aggregated.append(sum(e[i] for e in encrypted))   
             self.time_metrics["aggregation"].append(time.time() - a_start)
             
-            # Decryption & Dequantization
+            # Obtain communication size of aggregated data (in bytes)
+            self.total_communication += sys.getsizeof(aggregated) * len(encrypted)
+            
+            # Decryption 
             d_start = time.time()
             decrypted = self._decrypt(aggregated)
             decrypted = decrypted / len(encrypted)
+            
+            # Dequantization
             dequantized = self._dequantize(decrypted, params)
             self.time_metrics["decryption"].append(time.time() - d_start)
                         
             processed[name] = torch.tensor(dequantized)
         return processed
 
-    def aggregate_evaluate(self, server_round, results, failures):
+    def aggregate_evaluate(
+            self, 
+            server_round: int,
+            results, 
+            failures
+        ):
         """Handle evaluation results and save metrics."""
     
+    
+        self.config.current_round = server_round
         aggregated_loss, aggregated_metrics = super().aggregate_evaluate(server_round, results, failures)
 
         # Compute average accuracy
@@ -194,10 +220,7 @@ class SecureAggregationStrategy(FedAvg):
             'loss': aggregated_loss,
         })
         
-        self.config.current_round += 1
-        print(f"Server Current Round: {self.config.current_round}")
-        # Final round processing
-        if self.config.current_round == self.config.num_rounds:
+        if server_round == self.config.num_rounds:
             self._save_metrics()
             
         return aggregated_loss, aggregated_metrics
@@ -251,12 +274,7 @@ class SecureAggregationStrategy(FedAvg):
     def _save_metrics(self) -> None:
         """Save all collected metrics to files."""
         try:
-            # Save evaluation metrics
-            with open("evaluation_metrics.csv", "w") as f:
-                f.write("round,accuracy,loss\n")
-                for metrics in self.evaluation_log:
-                    f.write(f"{metrics['server_round']},{metrics['accuracy']},{metrics['loss']}\n")
-            
+ 
             # Save time metrics
             with open("server_time_stats.csv", "w") as f:
                 f.write("operation,time\n")
@@ -286,13 +304,13 @@ def main():
     with open("server_address.txt", "w") as f:
         f.write(SERVER_ADDRESS)
         
-    config = ServerConfig()
-    strategy = create_server_app(config)
+    server_config = ServerConfig()
+    strategy = create_server_app(server_config)
     
     # Start server
     fl.server.start_server(
         server_address="0.0.0.0:8080",
-        config=fl.server.ServerConfig(num_rounds=config.num_rounds),
+        config=server_config,
         strategy=strategy,
         grpc_max_message_length=1024**3,
     )
