@@ -6,9 +6,17 @@ from torch.optim.lr_scheduler import StepLR, CosineAnnealingLR
 
 def train(net, trainloader, epochs: int, config: dict, verbose=False):
     """Train the network on the training set."""
-    DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    net = net.to(device)
     criterion = torch.nn.CrossEntropyLoss()
     
+    initial_lr = config.get("lr", 0.1)
+    optimizer = torch.optim.SGD(
+        net.parameters(), 
+        lr=initial_lr,
+        momentum=0.9, 
+        weight_decay=5e-4
+    )
 
     scheduler_type = config.get("scheduler_step", "cosine")
     optimizer = torch.optim.SGD(net.parameters(), 
@@ -16,19 +24,15 @@ def train(net, trainloader, epochs: int, config: dict, verbose=False):
                                 momentum=0.9, 
                                 weight_decay=5e-4)
     
-    
-    if config['scheduler'] == 'cosine':
+    if config.get('scheduler') == 'cosine':
         scheduler = CosineAnnealingLR(
-            optimizer, 
-            T_max=config['total_rounds'],
-            eta_min=config['min_lr']
-        )
-    elif config['scheduler'] == 'step':
-        scheduler = StepLR(
             optimizer,
-            step_size=30,
-            gamma=0.1
+            T_max=config.get('total_rounds', epochs),
+            eta_min=config.get("min_lr", 0.001)
         )
+    else:
+        scheduler = StepLR(optimizer, step_size=30, gamma=0.1)
+    
     net.train()
     
     for _ in range(config['server_round']):
@@ -56,18 +60,20 @@ def train(net, trainloader, epochs: int, config: dict, verbose=False):
                     print(f"Unexpected batch format: {type(batch)}")
                     continue
             
-            images = images.to(DEVICE)
-            labels = labels.to(DEVICE)
+            images = images.to(device)
+            labels = labels.to(device)
             
             optimizer.zero_grad()
             outputs = net(images)
             loss = criterion(outputs, labels)
+            
             loss.backward()              
             optimizer.step()
       
             epoch_loss += loss.item()
             total += labels.size(0)
             correct += (torch.max(outputs.data, 1)[1] == labels).sum().item()
+            
         scheduler.step()
         epoch_loss /= len(trainloader)
         epoch_acc = correct / total

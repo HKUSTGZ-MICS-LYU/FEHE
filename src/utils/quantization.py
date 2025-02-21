@@ -34,10 +34,13 @@ class Quantizer:
         """
         Naive dequantization of weights from n_bits.
         """
-        dequantized_weight = []
-        for weight in quantized_weight:
-            dequantized_weight.append(weight * scale + min_val)
-        return dequantized_weight
+        if isinstance(quantized_weight, (int, float, np.number)):
+        # 处理单个值
+            return quantized_weight * scale + min_val
+        else:
+        # 处理数组
+            quantized_weight = np.array(quantized_weight)
+        return quantized_weight * scale + min_val
     
     def quantize_weights_truncate(self, weight, n_bits, truncate_method='quantile', truncate_param=0.01):
         """

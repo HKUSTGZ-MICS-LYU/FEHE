@@ -1,1 +1,0 @@
-{"lr": 0.01, "min_lr": 0.001, "epochs": 100, "batch_size": 128, "scheduler": "cosine", "model": "ResNet18", "dataset": "CIFAR10"}
