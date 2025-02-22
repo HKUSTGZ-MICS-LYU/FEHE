@@ -26,6 +26,7 @@ from flwr.server.strategy import FedAvg
 from utils import encryption
 from utils import filedata as fd
 from utils.quantization import Quantizer
+import hashlib
 
 def fit_config(server_round: int) -> Dict:
     """Return a configuration with static number of rounds."""
@@ -45,10 +46,11 @@ def evaluate_config(server_round: int) -> Dict:
 @dataclass
 class ServerConfig:
     """Server configuration parameters."""
-    num_rounds: int = 20
-    min_clients: int = 2
-    min_evaluate_clients: int = 2
-    min_available_clients: int = 5
+    num_rounds: int = 100
+    
+    min_clients: int = 40
+    min_evaluate_clients: int = 40
+    min_available_clients: int = 200
     poly_modulus_degree: int = 4096
     plain_modulus: int = 1032193
     quant_bits: int = 8
@@ -62,7 +64,7 @@ class SecureAggregationStrategy(FedAvg):
     def __init__(self, config: ServerConfig):
         super().__init__(
             fraction_fit            =   config.min_clients / config.min_available_clients,
-            fraction_evaluate       =   1.0,
+            fraction_evaluate       =    config.min_evaluate_clients / config.min_available_clients,
             min_fit_clients         =   config.min_clients,
             min_evaluate_clients    =   config.min_evaluate_clients,
             min_available_clients   =   config.min_available_clients,
@@ -114,7 +116,18 @@ class SecureAggregationStrategy(FedAvg):
             shape = next(p[name].shape for p in client_params)  
             reshaped_params[name] = aggregated_params[name].view(shape)
     
-        torch.save(reshaped_params, f"{self.config.encrypted_dir}/aggregated_params.pth")        
+        torch.save(reshaped_params, f"{self.config.encrypted_dir}/aggregated_params.pth")  
+              
+        # # Calculate hash of aggregated parameters
+        # hash_object = hashlib.sha256()
+        # with open(f"{self.config.encrypted_dir}/aggregated_params.pth", 'rb') as f:
+        #     hash_object.update(f.read())
+        # param_hash = hash_object.hexdigest()
+
+        # # Write hash to file
+        # with open(f"{self.config.encrypted_dir}/aggregated_params.hash", 'w') as f:
+        #     f.write(param_hash)
+            
         return super().aggregate_fit(server_round, results, failurs)
 
     def _collect_client_parameters(self, results) -> List[Dict]:

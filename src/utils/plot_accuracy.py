@@ -57,7 +57,7 @@ plt.grid(True, linestyle='--', alpha=0.3, zorder=0)
 colors = plt.cm.Pastel1(np.linspace(0, 1, len(client_accuracy)))
 for (client_id, data), color in zip(client_accuracy.items(), colors):
     plt.plot(data["round"], data["accuracy"], 
-            label=f"Client {client_id}", 
+            # label=f"Client {client_id}", 
             alpha=0.6,
             color=color,
             zorder=2)

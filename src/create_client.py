@@ -36,6 +36,7 @@ from models import (
 from utils.test import test
 from utils.train import train
 from utils.utils import get_parameters, set_parameters
+import hashlib
 
 
 @dataclass
@@ -83,15 +84,17 @@ class SecureClient(NumPyClient):
         
         set_parameters(self.model, parameters)
         
-        server_round = config.get("server_round", 1)
+        server_round = config.get("server_round")
+    
+    
         current_lr = self.config.lr * (0.1 ** (server_round // 30))
-        
+
         # Merge configuration
         full_config = {
             "lr": current_lr,
             "min_lr": 0.001,
             "scheduler": self.config.scheduler,
-            "total_rounds": 10,
+            "total_rounds": config.get("total_rounds"),
             "server_round": config.get("server_round"),
             **config
         }
@@ -107,7 +110,6 @@ class SecureClient(NumPyClient):
         )
         self.time_metrics["train"].append(time.time() - start_time)
     
-        # Save encrypted parameters
         params_path = f"{self.config.encrypted_dir}/client_{self.config.partition_id}_params.pth"
         torch.save(self.model.state_dict(), params_path)
         
@@ -120,24 +122,30 @@ class SecureClient(NumPyClient):
     ) -> Tuple[float, int, Dict[str, Scalar]]:
         """Evaluate the model on local data."""  
         
-        full_config = {
-            "server_round": config.get("server_round"),
-            "total_rounds": 10,
-            **config
-        }
     
         # Load aggregated parameters
         params_path = f"{self.config.encrypted_dir}/aggregated_params.pth"
+        # # Read hash of aggregated params file
+        # hash_path = f"{self.config.encrypted_dir}/aggregated_params.hash"
+        # with open(hash_path, 'r') as f:
+        #     expected_hash = f.read().strip()
+
+        # # Calculate hash of current params file 
+        # with open(params_path, 'rb') as f:
+        #     actual_hash = hashlib.sha256(f.read()).hexdigest()
+
+        # Verify hash matches before loading
+        # if actual_hash != expected_hash:
+            # raise ValueError("Parameter file hash mismatch - possible tampering detected")
         self.model.load_state_dict(torch.load(params_path))
         self.model.to(self.device)
-        
         # Evaluation
         loss, accuracy = test(self.model, self.valloader, verbose=True)
           
         self.accuracy_log[config.get("server_round")] = accuracy
         
         
-        if config.get("server_round") == full_config["total_rounds"]:
+        if config.get("server_round") == 100:
             self._finalize_training()
         
         return loss, len(self.valloader), {"accuracy": float(accuracy)}
@@ -232,8 +240,8 @@ def main():
     parser = argparse.ArgumentParser(description="Secure Federated Learning Client")
     parser.add_argument("--partition-id",   type=int,   default=0)
     parser.add_argument("--client-number",  type=int,   default=1)
-    parser.add_argument("--lr",             type=float, default=0.01)
-    parser.add_argument("--scheduler",      type=str,   default="cosine", choices=["cosine", "step"])
+    parser.add_argument("--lr",             type=float, default=0.1)
+    parser.add_argument("--scheduler",      type=str,   default="step", choices=["cosine", "step"])
     parser.add_argument("--batch-size",     type=int,   default=128)
     parser.add_argument("--model_name",     type=str,   default="LeNet5")
     parser.add_argument("--dataset_name",   type=str,   default="FASHIONMNIST")

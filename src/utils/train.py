@@ -16,21 +16,28 @@ def train(
     optimizer = torch.optim.SGD(net.parameters(), 
                                 lr=config.get("lr"), 
                                 momentum=0.9, 
-                                weight_decay=5e-4)
+                                weight_decay=0)
     
     if config.get('scheduler') == 'cosine':
         scheduler = CosineAnnealingLR(
             optimizer,
             T_max=config.get('total_rounds', epochs),
-            eta_min=config.get("min_lr", 0.001)
+            eta_min=config.get("min_lr", 0.001),
         )
+    elif config.get('scheduler') == 'step':
+        scheduler = StepLR(optimizer, step_size=40, gamma=0.1)
     else:
-        scheduler = StepLR(optimizer, step_size=30, gamma=0.1)
+        raise ValueError("Invalid scheduler type")
     
     net.train()
     
-        
     for epoch in range(epochs):
+        
+        current_lr = optimizer.param_groups[0]['lr']
+        if verbose:
+            print(f"\nEpoch {epoch+1}/{epochs}, Learning Rate: {current_lr:.6f}")
+            
+            
         correct, total, epoch_loss = 0, 0, 0.0
         for batch in trainloader:
             if isinstance(batch, dict):
