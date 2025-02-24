@@ -1,6 +1,6 @@
 # 定义变量
 PYTHON = python3
-BSUB = bsub -q gpu -Is 
+# BSUB = bsub -q gpu -Is 
 
 
 
