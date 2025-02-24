@@ -1,24 +1,13 @@
 # 定义变量
 PYTHON = python3
-# BSUB = bsub -q gpu -Is -gpu "num=4"
-BSUB = bsub -Is
+BSUB = bsub -q gpu -Is 
 
-
-# CUDA_VISIBLE_DEVICES = 0
-# CUDA_LAUNCH_BLOCKING = 1
-
-# # 环境变量
-# export CUDA_VISIBLE_DEVICES
-# export CUDA_LAUNCH_BLOCKING
-
-# 清理GPU缓存命令
-CLEAN_GPU = nvidia-smi --gpu-reset
 
 
 SERVER_SCRIPT = create_server.py
 CLIENT_SCRIPT = create_client.py
 SRC_DIR = encrypted
-NUM_CLIENTS = 200
+NUM_CLIENTS = 50
 # 默认目标
 all: 
 	@echo "Please specify a target !!!"

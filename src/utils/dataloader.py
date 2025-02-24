@@ -106,8 +106,10 @@ def load_datasets(
         elif DATASET_NAME == "FASHIONMNIST":
             fds = FederatedDataset(dataset="zalando-datasets/fashion_mnist", partitioners={"train": CLIENT_NUMER})
             partition = fds.load_partition(PARTITION_ID)
+            
             # Divide the partition into train and test sets (80% train, 20% test)
             partition_train_test = partition.train_test_split(test_size=0.2, seed=42)
+            
             pytorch_transform = transforms.Compose([
                 transforms.Resize((32, 32)),
                 transforms.ToTensor(), 
@@ -122,7 +124,10 @@ def load_datasets(
             trainloader = DataLoader(
                 partition_train_test["train"], batch_size=BATCH_SIZE, shuffle=True
             )
-            valloader = DataLoader(partition_train_test["test"], batch_size=BATCH_SIZE)
+            
+            valloader = DataLoader(
+                partition_train_test["test"], batch_size=BATCH_SIZE
+            )
             testset = fds.load_split("test").with_transform(apply_transforms)
             testloader = DataLoader(testset, batch_size=BATCH_SIZE)
             return trainloader, valloader, testloader

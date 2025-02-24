@@ -48,13 +48,13 @@ class ServerConfig:
     """Server configuration parameters."""
     num_rounds: int = 100
     
-    min_clients: int = 40
-    min_evaluate_clients: int = 40
-    min_available_clients: int = 200
+    min_clients: int = 20
+    min_evaluate_clients: int = 20
+    min_available_clients: int = 50
     poly_modulus_degree: int = 4096
     plain_modulus: int = 1032193
     quant_bits: int = 8
-    quant_method: str = "naive"
+    quant_method: str = "sigma"
     encrypted_dir: str = "encrypted"
     round_timeout: Optional[float] = None
     
@@ -105,11 +105,11 @@ class SecureAggregationStrategy(FedAvg):
         
         # Phase 2: Parameter Processing
         quantized_layers, non_quantized = self._categorize_parameters(client_params)
-        
+       
         # Phase 3: Secure Aggregation
         aggregated_params = self._process_quantized_layers(quantized_layers)
         aggregated_params.update(self._process_non_quantized(non_quantized))
-        
+     
         # Phase 4: Reshape and save aggregated parameters
         reshaped_params = OrderedDict()
         for name in aggregated_params:
@@ -250,6 +250,8 @@ class SecureAggregationStrategy(FedAvg):
         flat_weights = np.concatenate([w.flatten() for w in weights])
         global_max = np.max(flat_weights)
         global_min = np.min(flat_weights)
+        global_mu = np.mean(flat_weights)
+        global_sigma = np.std(flat_weights)
         
         quantized = []
         quant_params = None
@@ -257,9 +259,12 @@ class SecureAggregationStrategy(FedAvg):
             q_weight, q_params = self.quantizer.quantize_weights_unified(
                 weight.flatten(),
                 n_bits=self.config.quant_bits,
+                sigma_bits=[self.config.quant_bits]*4,
                 method=self.config.quant_method,
                 global_max=global_max,
-                global_min=global_min
+                global_min=global_min,
+                global_mu=global_mu,
+                global_sigma=global_sigma
             )
             quantized.append(q_weight)
             quant_params = q_params

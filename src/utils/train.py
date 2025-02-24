@@ -13,19 +13,24 @@ def train(
     net = net.to(device)
     criterion = torch.nn.CrossEntropyLoss()
 
-    optimizer = torch.optim.SGD(net.parameters(), 
-                                lr=config.get("lr"), 
-                                momentum=0.9, 
-                                weight_decay=0)
+
+    if config.get('optimizer') == 'adam':
+        optimizer = torch.optim.Adam(net.parameters(),
+                                   lr=config.get("lr"),
+                                   weight_decay=5e-4)
+    else:
+        optimizer = torch.optim.SGD(net.parameters(), 
+                                  lr=config.get("lr"), 
+                                  momentum=0.9, 
+                                  weight_decay=5e-4)
     
     if config.get('scheduler') == 'cosine':
         scheduler = CosineAnnealingLR(
             optimizer,
-            T_max=config.get('total_rounds', epochs),
-            eta_min=config.get("min_lr", 0.001),
+            T_max=config.get('total_rounds')
         )
     elif config.get('scheduler') == 'step':
-        scheduler = StepLR(optimizer, step_size=40, gamma=0.1)
+        scheduler = StepLR(optimizer, step_size=20, gamma=0.1)
     else:
         raise ValueError("Invalid scheduler type")
     
@@ -73,7 +78,7 @@ def train(
             total += labels.size(0)
             correct += (torch.max(outputs.data, 1)[1] == labels).sum().item()
             
-        scheduler.step()
+        # scheduler.step()
         epoch_loss /= len(trainloader)
         epoch_acc = correct / total
         if verbose:

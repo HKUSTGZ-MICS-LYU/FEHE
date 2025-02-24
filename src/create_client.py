@@ -46,6 +46,7 @@ class ClientConfig:
     client_number: int 
     lr: float = 0.01
     scheduler: str = "cosine"
+    optimizer: str = "adam"
     batch_size: int = 128
     model_name: str = "LeNet5"
     dataset_name: str = "FASHIONMNIST"
@@ -58,11 +59,13 @@ class SecureClient(NumPyClient):
         config: ClientConfig,
         model: torch.nn.Module,
         trainloader: torch.utils.data.DataLoader,
+        testloader: torch.utils.data.DataLoader,
         valloader: torch.utils.data.DataLoader
     ):
         self.config = config
         self.model = model
         self.trainloader = trainloader
+        self.testloader = testloader
         self.valloader = valloader
         self.accuracy_log: Dict[int, float] = {}
         self.time_metrics: Dict[str, list] = {"train": [], "evaluate": []}
@@ -80,7 +83,7 @@ class SecureClient(NumPyClient):
         config
     ) -> Tuple[NDArrays, int, Dict[str, Scalar]]:
         """Train model on local data with enhanced security measures."""
-    
+
         
         set_parameters(self.model, parameters)
         
@@ -94,7 +97,7 @@ class SecureClient(NumPyClient):
             "lr": current_lr,
             "min_lr": 0.001,
             "scheduler": self.config.scheduler,
-            "total_rounds": config.get("total_rounds"),
+            "total_rounds": 200,
             "server_round": config.get("server_round"),
             **config
         }
@@ -140,7 +143,7 @@ class SecureClient(NumPyClient):
         self.model.load_state_dict(torch.load(params_path))
         self.model.to(self.device)
         # Evaluation
-        loss, accuracy = test(self.model, self.valloader, verbose=True)
+        loss, accuracy = test(self.model, self.testloader, verbose=True)
           
         self.accuracy_log[config.get("server_round")] = accuracy
         
@@ -188,9 +191,11 @@ class SecureClient(NumPyClient):
 
 def load_model(model_name: str, dataset: str) -> torch.nn.Module:
     """Factory function to load a model by name."""
+    num_classes = 10 if dataset == "CIFAR10" else 100
+    
     model_map = {
         'LeNet5': LeNet5,
-        'ResNet18': ResNet18,
+        'ResNet18': lambda: ResNet18(num_classes=num_classes),
         'VGG19': lambda: VGG("VGG19"),
         'PreActResNet18': PreActResNet18,
         'GoogLeNet': GoogLeNet,
@@ -210,7 +215,8 @@ def load_model(model_name: str, dataset: str) -> torch.nn.Module:
     if dataset == "FASHIONMNIST":
         return LeNet5()
         
-    return model_map[model_name]()
+    model = model_map.get(model_name)()
+    return model
 
 
 def client_fn(context: Context) -> fl.client.Client:
@@ -240,7 +246,7 @@ def main():
     parser = argparse.ArgumentParser(description="Secure Federated Learning Client")
     parser.add_argument("--partition-id",   type=int,   default=0)
     parser.add_argument("--client-number",  type=int,   default=1)
-    parser.add_argument("--lr",             type=float, default=0.1)
+    parser.add_argument("--lr",             type=float, default=0.05)
     parser.add_argument("--scheduler",      type=str,   default="step", choices=["cosine", "step"])
     parser.add_argument("--batch-size",     type=int,   default=128)
     parser.add_argument("--model_name",     type=str,   default="LeNet5")
@@ -251,7 +257,7 @@ def main():
     
     # Initialize components
     model = load_model(config.model_name, config.dataset_name)
-    trainloader, valloader, _ = load_datasets(
+    trainloader, valloader, testloader = load_datasets(
         DATASET_NAME = config.dataset_name,
         CLIENT_NUMER = config.client_number,
         BATCH_SIZE   = config.batch_size,
@@ -260,7 +266,13 @@ def main():
     )
     
     # Start client
-    client = SecureClient(config, model, trainloader, valloader)
+    client = SecureClient(
+        config=config,
+        model=model,
+        trainloader=trainloader,
+        testloader=testloader,
+        valloader=valloader
+    )
     fl.client.start_numpy_client(
         server_address=get_server_address(),
         client=client,
