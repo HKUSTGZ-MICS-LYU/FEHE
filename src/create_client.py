@@ -108,7 +108,6 @@ class SecureClient(NumPyClient):
         self.model = train(
             net = self.model, 
             trainloader = self.trainloader,
-            valloader = self.valloader,
             epochs = config.get('local_epochs'),
             config=full_config,
             current_round=config.get("server_round"),
@@ -248,7 +247,7 @@ def main():
     parser = argparse.ArgumentParser(description="Secure Federated Learning Client")
     parser.add_argument("--partition-id",   type=int,   default=0)
     parser.add_argument("--client-number",  type=int,   default=1)
-    parser.add_argument("--lr",             type=float, default=0.1)
+    parser.add_argument("--lr",             type=float, default=0.001)
     parser.add_argument("--min_lr",         type=float, default=1e-6)
     parser.add_argument("--scheduler",      type=str,   default="cosine", choices=["cosine", "step"])
     parser.add_argument("--optimizer",      type=str,   default="sgd", choices=["adam", "sgd"])

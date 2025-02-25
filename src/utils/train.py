@@ -29,7 +29,7 @@ def train(
     # 根据通信轮数计算当前学习率
     if config.get('scheduler') == 'cosine':
         # 余弦退火调度器
-        eta_min = 0  # 最小学习率
+        eta_min = 1e-6  # 最小学习率
         current_lr = eta_min + (config.get("lr") - eta_min) * (1 + math.cos(math.pi * current_round / total_rounds)) / 2
     elif config.get('scheduler') == 'step':
         # 步进调度器
