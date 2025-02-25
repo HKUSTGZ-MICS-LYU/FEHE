@@ -33,6 +33,7 @@ def fit_config(server_round: int) -> Dict:
     config = {
         "server_round": server_round,
         "local_epochs": 1,
+        "total_round": 100
     }
     return config
 
@@ -51,9 +52,11 @@ class ServerConfig:
     min_clients: int = 20
     min_evaluate_clients: int = 20
     min_available_clients: int = 50
+    
     poly_modulus_degree: int = 4096
     plain_modulus: int = 1032193
     quant_bits: int = 8
+    quant_area: int = 4
     quant_method: str = "sigma"
     encrypted_dir: str = "encrypted"
     round_timeout: Optional[float] = None
@@ -118,15 +121,15 @@ class SecureAggregationStrategy(FedAvg):
     
         torch.save(reshaped_params, f"{self.config.encrypted_dir}/aggregated_params.pth")  
               
-        # # Calculate hash of aggregated parameters
-        # hash_object = hashlib.sha256()
-        # with open(f"{self.config.encrypted_dir}/aggregated_params.pth", 'rb') as f:
-        #     hash_object.update(f.read())
-        # param_hash = hash_object.hexdigest()
+        # Calculate hash of aggregated parameters
+        hash_object = hashlib.sha256()
+        with open(f"{self.config.encrypted_dir}/aggregated_params.pth", 'rb') as f:
+            hash_object.update(f.read())
+        param_hash = hash_object.hexdigest()
 
-        # # Write hash to file
-        # with open(f"{self.config.encrypted_dir}/aggregated_params.hash", 'w') as f:
-        #     f.write(param_hash)
+        # Write hash to file
+        with open(f"{self.config.encrypted_dir}/aggregated_params.hash", 'w') as f:
+            f.write(param_hash)
             
         return super().aggregate_fit(server_round, results, failurs)
 
@@ -259,7 +262,7 @@ class SecureAggregationStrategy(FedAvg):
             q_weight, q_params = self.quantizer.quantize_weights_unified(
                 weight.flatten(),
                 n_bits=self.config.quant_bits,
-                sigma_bits=[self.config.quant_bits]*4,
+                sigma_bits=[self.config.quant_bits]*self.config.quant_area,
                 method=self.config.quant_method,
                 global_max=global_max,
                 global_min=global_min,
@@ -291,17 +294,16 @@ class SecureAggregationStrategy(FedAvg):
 
     def _save_metrics(self) -> None:
         """Save all collected metrics to files."""
-        try:
- 
+        try: 
             # Save time metrics
-            with open("server_time_stats.csv", "w") as f:
+            with open(f"{self.config.encrypted_dir}/server_time_stats.csv", "w") as f:
                 f.write("operation,time\n")
                 for operation, times in self.time_metrics.items():
                     for t in times:
                         f.write(f"{operation},{t}\n")
             
             # Save communication stats
-            with open("total_communication.csv", "w") as f:
+            with open(f"{self.config.encrypted_dir}/total_communication.csv", "w") as f:
                 f.write(f"Total communication (GB),{self.total_communication / 1024 ** 3}")
                 
             logging.info("All metrics saved successfully")

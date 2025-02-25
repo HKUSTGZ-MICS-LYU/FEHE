@@ -7,7 +7,7 @@ import glob
 # Read all available accuracy logs
 client_accuracy = {}
 # 使用 glob 查找所有客户端的日志文件
-for csv_path in glob.glob("client_*_accuracy.csv"):
+for csv_path in glob.glob("encrypted/client_*_accuracy.csv"):
     # 从文件名中提取客户端ID
     client_id = int(csv_path.split('_')[1])
     client_accuracy[client_id] = pd.read_csv(csv_path)

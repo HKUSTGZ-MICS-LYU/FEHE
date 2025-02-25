@@ -7,11 +7,11 @@ import os
 def read_time_stats():
     """读取所有时间统计文件并合并数据"""
     # 读取服务器统计
-    server_stats = pd.read_csv("server_time_stats.csv")
+    server_stats = pd.read_csv("encrypted/server_time_stats.csv")
     server_total = server_stats.groupby('operation')['time'].sum()
     
     # 读取所有客户端统计
-    client_files = glob.glob("client_*_time_stats.csv")
+    client_files = glob.glob("encrypted/client_*_time_stats.csv")
     client_stats = []
     
     for file in client_files:

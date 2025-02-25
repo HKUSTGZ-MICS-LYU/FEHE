@@ -1,6 +1,6 @@
 # 定义变量
 PYTHON = python3
-# BSUB = bsub -q gpu -Is 
+BSUB = bsub -q gpu -Is -gpu "num=1" 
 
 
 
@@ -18,7 +18,7 @@ plot:
 	
 # 运行 create_server.py
 server:
-	rm -f server_address.txt  client_*  
+	rm -f server_address.txt  encrypted/*
 	$(BSUB) $(PYTHON) $(SERVER_SCRIPT)
 
 # 运行 create_client.py

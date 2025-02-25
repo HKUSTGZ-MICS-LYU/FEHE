@@ -45,9 +45,12 @@ class ClientConfig:
     partition_id: int 
     client_number: int 
     lr: float = 0.01
+    min_lr: float = 1e-6
     scheduler: str = "cosine"
     optimizer: str = "adam"
     batch_size: int = 128
+    IID: bool = True
+    alpha: float = 1.0
     model_name: str = "LeNet5"
     dataset_name: str = "FASHIONMNIST"
     encrypted_dir: str = "encrypted"
@@ -90,26 +93,27 @@ class SecureClient(NumPyClient):
         server_round = config.get("server_round")
     
     
-        current_lr = self.config.lr * (0.1 ** (server_round // 30))
+        # current_lr = self.config.lr * (0.1 ** (server_round // 10))
 
         # Merge configuration
         full_config = {
-            "lr": current_lr,
-            "min_lr": 0.001,
+            "lr": self.config.lr,
+            "min_lr": self.config.min_lr,
             "scheduler": self.config.scheduler,
-            "total_rounds": 200,
-            "server_round": config.get("server_round"),
             **config
         }
   
         # Training phase
         start_time = time.time()
-        train(
+        self.model = train(
             net = self.model, 
             trainloader = self.trainloader,
-            epochs = 1,
+            valloader = self.valloader,
+            epochs = config.get('local_epochs'),
             config=full_config,
-            verbose=True
+            current_round=config.get("server_round"),
+            total_rounds=config.get("total_round"),
+            verbose=False
         )
         self.time_metrics["train"].append(time.time() - start_time)
     
@@ -124,22 +128,20 @@ class SecureClient(NumPyClient):
         config: Dict[str, Scalar]
     ) -> Tuple[float, int, Dict[str, Scalar]]:
         """Evaluate the model on local data."""  
-        
-    
+        # print(f"\nEvaluating client {self.config.partition_id}...")
         # Load aggregated parameters
         params_path = f"{self.config.encrypted_dir}/aggregated_params.pth"
-        # # Read hash of aggregated params file
-        # hash_path = f"{self.config.encrypted_dir}/aggregated_params.hash"
-        # with open(hash_path, 'r') as f:
-        #     expected_hash = f.read().strip()
-
-        # # Calculate hash of current params file 
-        # with open(params_path, 'rb') as f:
-        #     actual_hash = hashlib.sha256(f.read()).hexdigest()
-
+        # Read hash of aggregated params file
+        hash_path = f"{self.config.encrypted_dir}/aggregated_params.hash"
+        with open(hash_path, 'r') as f:
+            expected_hash = f.read().strip()
+        # Calculate hash of current params file 
+        with open(params_path, 'rb') as f:
+            actual_hash = hashlib.sha256(f.read()).hexdigest()
         # Verify hash matches before loading
-        # if actual_hash != expected_hash:
-            # raise ValueError("Parameter file hash mismatch - possible tampering detected")
+        if actual_hash != expected_hash:
+            raise ValueError("Parameter file hash mismatch - possible tampering detected")
+        
         self.model.load_state_dict(torch.load(params_path))
         self.model.to(self.device)
         # Evaluation
@@ -166,7 +168,7 @@ class SecureClient(NumPyClient):
 
     def _save_accuracy_csv(self):
         """Save the accuracy log to a CSV file."""
-        csv_path = f"client_{self.config.partition_id}_accuracy.csv"
+        csv_path = f"{self.config.encrypted_dir}/client_{self.config.partition_id}_accuracy.csv"
         try:
             with open(csv_path, "w") as f:
                 f.write("round,accuracy\n")
@@ -178,7 +180,7 @@ class SecureClient(NumPyClient):
     
     def _save_time_stats(self):
         """Save time metrics to a CSV file."""
-        stats_path = f"client_{self.config.partition_id}_time_stats.csv"
+        stats_path = f"{self.config.encrypted_dir}/client_{self.config.partition_id}_time_stats.csv"
         try:
             with open(stats_path, "w") as f:
                 f.write("operation,round,time\n")
@@ -246,10 +248,13 @@ def main():
     parser = argparse.ArgumentParser(description="Secure Federated Learning Client")
     parser.add_argument("--partition-id",   type=int,   default=0)
     parser.add_argument("--client-number",  type=int,   default=1)
-    parser.add_argument("--lr",             type=float, default=0.05)
+    parser.add_argument("--lr",             type=float, default=0.1)
+    parser.add_argument("--min_lr",         type=float, default=1e-6)
     parser.add_argument("--scheduler",      type=str,   default="cosine", choices=["cosine", "step"])
     parser.add_argument("--optimizer",      type=str,   default="sgd", choices=["adam", "sgd"])
     parser.add_argument("--batch-size",     type=int,   default=128)
+    parser.add_argument("--IID",            type=bool,  default=False)
+    parser.add_argument("--alpha",          type=float, default=1.0)
     parser.add_argument("--model_name",     type=str,   default="LeNet5")
     parser.add_argument("--dataset_name",   type=str,   default="FASHIONMNIST")
     args = parser.parse_args()
@@ -263,7 +268,9 @@ def main():
         CLIENT_NUMER = config.client_number,
         BATCH_SIZE   = config.batch_size,
         PARTITION_ID = config.partition_id,
-        FEDERATED    = True
+        FEDERATED    = True,
+        IID          = config.IID,
+        alpha        = config.alpha
     )
     
     # Start client
