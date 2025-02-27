@@ -898,20 +898,31 @@ class BFVContext(object):
                     tmp.append(center(c, mod))
                 INV_TABLE.append(tmp[int(len(tmp)/2):])
             self.ntt_inverse_table.append(INV_TABLE)
-    
-
-                 
-            
-                
-                
-            
-                
-
+                               
 def Print(v, n):
     for i in range(2):
         for j in range(n // 2):
             sys.stdout.write('%6d ' % v[i * (n // 2) + j])
         sys.stdout.write('\n')
+        
+
+
+n = 64
+
+t = [65537]
+q = [28,28,28]
+
+# Generate list of numbers from 0 to n-1
+vector1 = list(range(n))
+
+
+context = BFVContext(q, n, t)
+
+
+pt1 = context.crt_and_encode(vector1)
+
+ct = context.encrypt(pt1)
+context.printBudget(ct)
 
 
  
