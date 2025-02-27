@@ -73,9 +73,9 @@ class SecureClient(NumPyClient):
         self.accuracy_log: Dict[int, float] = {}
         self.time_metrics: Dict[str, list] = {"train": [], "evaluate": []}
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        
         # Ensure encrypted directory exists
         Path(config.encrypted_dir).mkdir(parents=True, exist_ok=True)
+    
 
     def get_parameters(self, config: Dict[str, Scalar]) -> NDArrays:
         return get_parameters(self.model)
@@ -85,16 +85,12 @@ class SecureClient(NumPyClient):
         parameters,
         config
     ) -> Tuple[NDArrays, int, Dict[str, Scalar]]:
-        """Train model on local data with enhanced security measures."""
-
-        
+        """Train model on local data with enhanced security measures."""      
+        print('='*50)
+        print(config)
+        print('='*50)
         set_parameters(self.model, parameters)
-        
-        server_round = config.get("server_round")
     
-    
-        # current_lr = self.config.lr * (0.1 ** (server_round // 10))
-
         # Merge configuration
         full_config = {
             "lr": self.config.lr,
@@ -111,7 +107,7 @@ class SecureClient(NumPyClient):
             epochs = config.get('local_epochs'),
             config=full_config,
             current_round=config.get("server_round"),
-            total_rounds=config.get("total_round"),
+            total_rounds=config.get("num_rounds"),
             verbose=False
         )
         self.time_metrics["train"].append(time.time() - start_time)
@@ -144,7 +140,7 @@ class SecureClient(NumPyClient):
         self.model.load_state_dict(torch.load(params_path))
         self.model.to(self.device)
         # Evaluation
-        loss, accuracy = test(self.model, self.testloader, verbose=True)
+        loss, accuracy = test(self.model, self.valloader, verbose=True)
           
         self.accuracy_log[config.get("server_round")] = accuracy
         
@@ -252,10 +248,10 @@ def main():
     parser.add_argument("--scheduler",      type=str,   default="cosine", choices=["cosine", "step"])
     parser.add_argument("--optimizer",      type=str,   default="sgd", choices=["adam", "sgd"])
     parser.add_argument("--batch-size",     type=int,   default=128)
-    parser.add_argument("--IID",            type=bool,  default=False)
+    parser.add_argument("--IID",            type=bool,  default=True)
     parser.add_argument("--alpha",          type=float, default=1.0)
-    parser.add_argument("--model_name",     type=str,   default="LeNet5")
-    parser.add_argument("--dataset_name",   type=str,   default="FASHIONMNIST")
+    parser.add_argument("--model_name",     type=str,   default="ResNet18")
+    parser.add_argument("--dataset_name",   type=str,   default="CIFAR10")
     args = parser.parse_args()
     config = ClientConfig(**vars(args))
     

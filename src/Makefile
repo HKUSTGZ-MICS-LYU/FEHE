@@ -1,7 +1,7 @@
 # 定义变量
 PYTHON = python3
 BSUB = bsub -q gpu -Is -gpu "num=1" 
-
+# BSUB = bsub -q cpu -Is
 
 
 SERVER_SCRIPT = create_server.py

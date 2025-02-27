@@ -28,43 +28,42 @@ from utils import filedata as fd
 from utils.quantization import Quantizer
 import hashlib
 
-def fit_config(server_round: int) -> Dict:
-    """Return a configuration with static number of rounds."""
-    config = {
-        "server_round": server_round,
-        "local_epochs": 1,
-        "total_round": 100
-    }
-    return config
 
-def evaluate_config(server_round: int) -> Dict:
-    """Return a configuration with static number of rounds."""
-    config = {
-        "server_round": server_round,
-    }
-    return config
 
 @dataclass
 class ServerConfig:
     """Server configuration parameters."""
-    num_rounds: int = 100
+    num_rounds:             int = 100
     
-    min_clients: int = 20
-    min_evaluate_clients: int = 20
-    min_available_clients: int = 50
+    min_clients:            int = 20
+    min_evaluate_clients:   int = 20
+    min_available_clients:  int = 50
     
-    poly_modulus_degree: int = 4096
-    plain_modulus: int = 1032193
-    quant_bits: int = 8
-    quant_area: int = 4
-    quant_method: str = "sigma"
-    encrypted_dir: str = "encrypted"
-    round_timeout: Optional[float] = None
+    poly_modulus_degree:    int = 4096
+    plain_modulus:          int = 1032193
+    quant_bits:             int = 8
+    quant_area:             int = 5
+    quant_method:           str = "sigma"
+    encrypted_dir:          str = "encrypted"
+    round_timeout:          Optional[float] = None
     
 
 class SecureAggregationStrategy(FedAvg):
     """Custom aggregation strategy with secure enclave operations."""
     def __init__(self, config: ServerConfig):
+        def fit_config_with_rounds(server_round: int):
+            return {
+                "server_round": server_round,
+                "local_epochs": 1,
+                "num_rounds": config.num_rounds
+            }
+
+        def evaluate_config(server_round: int) -> Dict:
+            """Return a configuration with static number of rounds."""
+            return {
+                "server_round": server_round,
+            }
+        
         super().__init__(
             fraction_fit            =   config.min_clients / config.min_available_clients,
             fraction_evaluate       =    config.min_evaluate_clients / config.min_available_clients,
@@ -73,7 +72,7 @@ class SecureAggregationStrategy(FedAvg):
             min_available_clients   =   config.min_available_clients,
             initial_parameters      =   None,
             evaluate_fn             =   None,
-            on_fit_config_fn        =   fit_config,
+            on_fit_config_fn        =   fit_config_with_rounds,
             on_evaluate_config_fn   =   evaluate_config,
         )
         self.config  = config
