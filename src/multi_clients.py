@@ -1,4 +1,5 @@
 # Standard libraries
+import time
 from tqdm import tqdm
 import argparse
 import copy
@@ -123,36 +124,169 @@ class Client:
         for name, param in self.model.named_parameters():
             param.data = aggregated_weights[name]
             
-def encrypt_weights():
+def encrypt_weights(weights_dict, context, chunk_size=4096):
     """使用BFV加密权重"""
-    encrypt_weights = {}
-    pass
+    encrypted_weights = {}
+    
+    for name, weights in weights_dict.items():
+        encrypted_weights[name] = []
+        
+        for weight in weights:
+            # 将权重转换为一维数组
+            flattened = weight.flatten()
+            encrypted_chunks = []
+            
+            # 如果权重大于chunk_size，分块处理
+            if len(flattened) > chunk_size:
+                # 计算需要多少块
+                num_chunks = (len(flattened) + chunk_size - 1) // chunk_size
+                
+                for i in range(num_chunks):
+                    start_idx = i * chunk_size
+                    end_idx = min((i + 1) * chunk_size, len(flattened))
+                    chunk = flattened[start_idx:end_idx]
+                    
+                    # 使用BFV加密每个块
+                    encrypted_chunk = ts.bfv_vector(context, chunk)
+                    encrypted_chunks.append(encrypted_chunk)
+            else:
+                # 如果权重小于chunk_size，直接加密
+                encrypted_chunk = ts.bfv_vector(context, flattened)
+                encrypted_chunks.append(encrypted_chunk)
+            
+            # 保存加密后的数据和原始形状信息
+            encrypted_weights[name].append(encrypted_chunks)
+            
+    return encrypted_weights
 
-def decrypt_weights():
+def decrypt_weights(aggregated_encrypted_weights, context):
     """使用BFV解密权重"""
     decrypt_weights = {}
-    pass
+    for name, weights in aggregated_encrypted_weights.items():
+        decrypted_weights = []
+        for weight in weights:
+            decrypted = weight.decrypt(context.secret_key())
+            decrypted_weights.extend(decrypted)
+        decrypt_weights[name] = np.array(decrypted_weights)
+    return decrypt_weights
 
-def quantize_weights():
+def quantize_weights(
+        selected_weights, # 选中客户端的权重
+        quantizer, # 量化器
+        n_bits=8, # 量化位数
+        method='sigma' # 量化方法
+):
     """量化权重"""
-    quantize_weights = {}
-    pass
+    need_quantized_weights = {}
+    nonquantized_weights = {}
+    quantized_weights = {}
+    quantized_weights_param = {}
+    
+    # 首先对需要量化和不需要量化的权重进行分类
+    for name, weights in selected_weights.items():
+        if _is_quantizable(name):
+            need_quantized_weights[name] = weights
+        else:
+            nonquantized_weights[name] = weights
+            
+    # 之后逐层来处理需要量化的
+    for name, weights in need_quantized_weights.items():   
+        flattened_weights = np.array([param.flatten() for param in weights]).flatten()
+        
+        #  要先找到最大值，最小值，均值，方差
+        global_max = np.max(flattened_weights)
+        global_min = np.min(flattened_weights)
+        global_mu = np.mean(flattened_weights)
+        global_sigma = np.std(flattened_weights)
+    
+ 
+        # 量化
+        for weight in weights:
+            q_weight, q_param = quantizer.quantize_weights_unified(
+                np.array(weight.flatten()),
+                n_bits = n_bits,
+                sigma_bits = [n_bits] * 3,
+                method = method,
+                global_max = global_max,
+                global_min = global_min,
+                global_mu = global_mu,
+                global_sigma = global_sigma
+            )
+            if name not in quantized_weights:
+                quantized_weights[name] = []
+                quantized_weights_param[name] = []
+                
+            quantized_weights[name].append(q_weight)
+            quantized_weights_param[name].append(q_param)
+    
+    return quantized_weights, quantized_weights_param, nonquantized_weights
+            
+            
+  
+    
+def _is_quantizable(name: str) -> bool:
+    """
+    decide whether to quantize the layer
+    only quantize the weights and biases of the convolutional layer and the fully connected layer
+    """
+    
+    # identify target layers
+    is_target_layer = any(key in name.lower() for key in ('conv', 'fc', 'linear'))
+    # identify weights and biases
+    is_weight_or_bias = any(key in name for key in ('weight', 'bias'))
+    # exclude batch normalization layers
+    is_excluded = any(key in name for key in ('bn', 'batch', 'running_', 'num_batches'))
+    
+    return is_target_layer and is_weight_or_bias and not is_excluded
+            
 
-def dequantize_weights():
+
+def dequantize_weights(quantizer, decrypted_weights, quantized_weights_param):
     """反量化权重"""
     dequantize_weights = {}
-    pass
+    for name, weights in decrypted_weights.items():
+        dequantized_weights = quantizer.dequantize_weights_unified(weights, quantized_weights_param[name][0])
+        dequantize_weights[name] = np.array(dequantized_weights)
+    return dequantize_weights
         
 
+def collect_weights_by_layer(client_models):
+    weights_dict = {}
+    # 遍历每个客户端
+    for client_id, model in client_models.items():
+        # 遍历客户端的每个参数
+        for param_name, param_value in model.items():
+            # 仅处理权重参数（以 .weight 结尾）
+            if param_name not in weights_dict:
+                weights_dict[param_name] = []
+            weights_dict[param_name].append(param_value)
+    return weights_dict    
+
 ### 联邦学习工具函数 ###
-def aggregate_weights(encrypted_weights_list):
+def aggregate_weights(encrypted_weights, non_quantized_params):
     """聚合客户端权重"""
-    aggregated_weights = {name: torch.zeros_like(param.data) for name, param in encrypted_weights_list[0].model.named_parameters()}
-    num_selected = len(encrypted_weights_list)
-    for client in encrypted_weights_list:
-        for name, param in client.model.named_parameters():
-            aggregated_weights[name] += param.data / num_selected
-    return aggregated_weights
+    aggregated_encrypted_weights = {}
+    aggregated_non_encrypted_weights = {}
+    
+    # 处理加密的权重
+    for name, weights in encrypted_weights.items():
+        for weight in weights:
+            for chunk_idx, chunk in enumerate(weight):
+                if name not in aggregated_encrypted_weights:
+                    aggregated_encrypted_weights[name] = []
+                if chunk_idx >= len(aggregated_encrypted_weights[name]):
+                    aggregated_encrypted_weights[name].append(chunk)
+                else:
+                    aggregated_encrypted_weights[name][chunk_idx] += chunk
+                    
+    # 处理未加密的权重
+    for name, param in non_quantized_params.items():
+        if name not in aggregated_non_encrypted_weights:
+            aggregated_non_encrypted_weights[name] = param
+        else:
+            aggregated_non_encrypted_weights[name] += param
+            
+    return aggregated_encrypted_weights, aggregated_non_encrypted_weights
 
 
 
@@ -188,14 +322,18 @@ def federated_learning(
     model_name='Model', 
     dataset_name='Dataset'
     ):
+    polynomial_degree = 4096
     
+    # 设置加密context
     context = ts.context(
         ts.SCHEME_TYPE.BFV, 
-        poly_modulus_degree=4096, 
+        poly_modulus_degree=polynomial_degree, 
         plain_modulus=1032193
         )
     context.generate_galois_keys()
     context.global_scale = 2**40  # 设置精度参数
+    # 设置quantization参数
+    quantizer = Quantizer()
     
     # 数据分配和客户端初始化
     client_data_indices = distribute_data(trainset, num_clients, iid)
@@ -206,27 +344,60 @@ def federated_learning(
 
     # 联邦学习循环
     for round in tqdm(range(num_rounds), desc="Federated Learning Rounds"):
-        # 随机选择20个客户端
-        selected_clients = random.sample(clients, select_num_clients)
-        
-        # 本地训练
-        for client in selected_clients:
+        # 所有的客户端参与训练
+        for client in clients:
             client.train(criterion, epochs=local_epochs)
         
-        # 收集和加密权重
-        key = torch.randn(1).to(device)  # 模拟加密密钥
-        encrypted_weights_list = [encrypt_weights({name: param.data for name, param in client.model.named_parameters()}, key) 
-                                for client in selected_clients]
+        if select_num_clients > num_clients:
+            raise ValueError("Number of selected clients should be less than total number of clients.")
+        
+        # 每次随机种子
+        random.seed(time.time())
+        
+        # 随机选择 select_num_clients 个客户端
+        selected_clients = random.sample(clients, select_num_clients)
+        
+        # 收集选中客户端的权重
+        selected_weights = {}
+        for client in selected_clients:
+            selected_weights[client.client_id] = {name: param.data for name, param in client.model.named_parameters()}
+        
+        selected_weights = collect_weights_by_layer(selected_weights)
+        
+        # 量化选中客户端的权重
+        quantized_weights, quantized_weights_param, non_quantized_params = quantize_weights(selected_weights, quantizer, n_bits=n_bits, method=method)
+        
+        # 加密选中客户端的权重
+        encrypted_weights = encrypt_weights(quantized_weights, context, chunk_size=polynomial_degree)
         
         # 聚合加密的权重
-        aggregated_encrypted_weights = aggregate_weights(encrypted_weights_list)
+        aggregated_encrypted_weights, aggregated_non_encrypted_weights = aggregate_weights(encrypted_weights, non_quantized_params)
         
         # 解密聚合的权重
-        aggregated_weights = decrypt_weights(aggregated_encrypted_weights, key)
+        decrypted_weights = decrypt_weights(aggregated_encrypted_weights, context)
         
+        # 用选中的数量进行平均模型
+        decrypted_weights = {name: param / select_num_clients for name, param in decrypted_weights.items()}
+        aggregated_non_encrypted_weights = {name: param / select_num_clients for name, param in aggregated_non_encrypted_weights.items()}
+        
+        # 反量化权重
+        dequantized_weights = dequantize_weights(quantizer, decrypted_weights, quantized_weights_param)
+        
+        # 根据dequantized_weights和aggregated_non_encrypted_weights构造新的全局模型
+        new_global_model = copy.deepcopy(global_model)
+        for name, param in new_global_model.named_parameters():
+            shape = param.data.shape
+            if name in dequantized_weights:
+                param.data = torch.from_numpy(dequantized_weights[name].reshape(shape))
+            else:
+                param.data = torch.from_numpy(aggregated_non_encrypted_weights[name].reshape(shape))
+                
         # 更新全局模型
-        for client in selected_clients:
-            client.update_global_model(aggregated_weights)
+        global_model.load_state_dict(new_global_model.state_dict())
+        
+        # 更新客户端模型
+        for client in clients:
+            client.update_global_model(global_model.state_dict())
             
         # 评估全局模型
         clients_acc = []
@@ -253,11 +424,11 @@ def main():
     parser.add_argument('--lr', type=float, default=0.01)
     parser.add_argument('--rounds', type=int, default=10)
     parser.add_argument('--local_epochs', type=int, default=1)
-    parser.add_argument('--num_clients', type=int, default=1)
-    parser.add_argument('--select_num_clients', type=int, default=1)
+    parser.add_argument('--num_clients', type=int, default=5)
+    parser.add_argument('--select_num_clients', type=int, default=2)
     parser.add_argument('--iid', action='store_true', help='Use IID data distribution')
     parser.add_argument('--n_bits', type=int, default=8, help='Bits for quantization')
-    parser.add_argument('--method', type=str, default='sigma', help='Quantization method')
+    parser.add_argument('--method', type=str, default='naive', help='Quantization method')
 
     args = parser.parse_args()
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
