@@ -86,9 +86,6 @@ class SecureClient(NumPyClient):
         config
     ) -> Tuple[NDArrays, int, Dict[str, Scalar]]:
         """Train model on local data with enhanced security measures."""      
-        print('='*50)
-        print(config)
-        print('='*50)
         set_parameters(self.model, parameters)
     
         # Merge configuration
@@ -124,20 +121,30 @@ class SecureClient(NumPyClient):
     ) -> Tuple[float, int, Dict[str, Scalar]]:
         """Evaluate the model on local data."""  
         # print(f"\nEvaluating client {self.config.partition_id}...")
-        # Load aggregated parameters
-        params_path = f"{self.config.encrypted_dir}/aggregated_params.pth"
-        # Read hash of aggregated params file
-        hash_path = f"{self.config.encrypted_dir}/aggregated_params.hash"
-        with open(hash_path, 'r') as f:
-            expected_hash = f.read().strip()
-        # Calculate hash of current params file 
-        with open(params_path, 'rb') as f:
-            actual_hash = hashlib.sha256(f.read()).hexdigest()
-        # Verify hash matches before loading
-        if actual_hash != expected_hash:
-            raise ValueError("Parameter file hash mismatch - possible tampering detected")
         
-        self.model.load_state_dict(torch.load(params_path))
+        clients_id = []
+        # Read the clients id that aggregated the model
+        with open(f"{self.config.encrypted_dir}/aggregate_client_ids.txt", "r") as f:
+            for line in f:
+                clients_id.append(line.strip())
+                
+        # Check if the current client is the one that aggregated the model
+        if str(self.config.partition_id) in clients_id:
+            # Load aggregated parameters
+            params_path = f"{self.config.encrypted_dir}/aggregated_params.pth"
+            # Read hash of aggregated params file
+            hash_path = f"{self.config.encrypted_dir}/aggregated_params.hash"
+            with open(hash_path, 'r') as f:
+                expected_hash = f.read().strip()
+            # Calculate hash of current params file 
+            with open(params_path, 'rb') as f:
+                actual_hash = hashlib.sha256(f.read()).hexdigest()
+            # Verify hash matches before loading
+            if actual_hash != expected_hash:
+                raise ValueError("Parameter file hash mismatch - possible tampering detected")
+            
+            self.model.load_state_dict(torch.load(params_path))
+            
         self.model.to(self.device)
         # Evaluation
         loss, accuracy = test(self.model, self.valloader, verbose=True)
@@ -247,11 +254,11 @@ def main():
     parser.add_argument("--min_lr",         type=float, default=1e-6)
     parser.add_argument("--scheduler",      type=str,   default="cosine", choices=["cosine", "step"])
     parser.add_argument("--optimizer",      type=str,   default="sgd", choices=["adam", "sgd"])
-    parser.add_argument("--batch-size",     type=int,   default=128)
-    parser.add_argument("--IID",            type=bool,  default=True)
+    parser.add_argument("--batch-size",     type=int,   default=16)
+    parser.add_argument("--IID",            type=bool,  default=False)
     parser.add_argument("--alpha",          type=float, default=1.0)
     parser.add_argument("--model_name",     type=str,   default="ResNet18")
-    parser.add_argument("--dataset_name",   type=str,   default="CIFAR10")
+    parser.add_argument("--dataset_name",   type=str,   default="CIFAR100")
     args = parser.parse_args()
     config = ClientConfig(**vars(args))
     

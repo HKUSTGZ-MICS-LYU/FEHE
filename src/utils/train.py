@@ -46,9 +46,6 @@ def train(
     net.train()
     
     for epoch in range(epochs):
-        print("="*20 + "Learning Rate" + "="*20)
-        print(f"\nEpoch {epoch+1}/{epochs}, Learning Rate: {current_lr:.6f}")
-        print("="*50)
         correct, total, epoch_loss = 0, 0, 0.0
         for batch in trainloader:
             if isinstance(batch, dict):

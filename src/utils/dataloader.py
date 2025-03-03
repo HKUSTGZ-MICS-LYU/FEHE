@@ -128,8 +128,12 @@ def _split_IID(dataset, num_clients: int):
     total_samples = len(dataset)
     indices =list(range(total_samples))
     
-    
-    client_indices = [indices for _ in range(num_clients)]
+    # 每个客户端的样本数量
+    samples_per_client = total_samples // num_clients
+    client_indices = []
+    # 无放回地抽取样本
+    for _ in range(num_clients):
+        client_indices.append(np.random.choice(indices, samples_per_client, replace=False).tolist())
     
     analyze_label_distribution(dataset, client_indices)
     return client_indices

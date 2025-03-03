@@ -37,13 +37,13 @@ class ServerConfig:
     
     min_clients:            int = 20
     min_evaluate_clients:   int = 20
-    min_available_clients:  int = 50
+    min_available_clients:  int = 40
     
     poly_modulus_degree:    int = 4096
     plain_modulus:          int = 1032193
     quant_bits:             int = 8
     quant_area:             int = 5
-    quant_method:           str = "sigma"
+    quant_method:           str = "naive"
     encrypted_dir:          str = "encrypted"
     round_timeout:          Optional[float] = None
     
@@ -54,7 +54,7 @@ class SecureAggregationStrategy(FedAvg):
         def fit_config_with_rounds(server_round: int):
             return {
                 "server_round": server_round,
-                "local_epochs": 1,
+                "local_epochs": 10,
                 "num_rounds": config.num_rounds
             }
 
@@ -66,7 +66,7 @@ class SecureAggregationStrategy(FedAvg):
         
         super().__init__(
             fraction_fit            =   config.min_clients / config.min_available_clients,
-            fraction_evaluate       =    config.min_evaluate_clients / config.min_available_clients,
+            fraction_evaluate       =   config.min_evaluate_clients / config.min_available_clients,
             min_fit_clients         =   config.min_clients,
             min_evaluate_clients    =   config.min_evaluate_clients,
             min_available_clients   =   config.min_available_clients,
@@ -101,6 +101,16 @@ class SecureAggregationStrategy(FedAvg):
     
     def aggregate_fit(self, server_round: int, results, failurs):
         """Secure aggregation pipeline with homomorphic encryption."""
+        
+        client_ids = []
+        for _, client in results:
+            client_ids.append(client.metrics['pid'])
+            
+        # Save to file
+        with open(f"{self.config.encrypted_dir}/aggregate_client_ids.txt", "w") as f:
+            for client_id in client_ids:
+                f.write(f"{client_id}\n")
+            
         
         # Phase 1: Parameter Collection
         client_params = self._collect_client_parameters(results)
