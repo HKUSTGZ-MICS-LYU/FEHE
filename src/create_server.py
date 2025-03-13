@@ -35,9 +35,9 @@ class ServerConfig:
     """Server configuration parameters."""
     num_rounds:             int = 100
     
-    min_clients:            int = 20
-    min_evaluate_clients:   int = 20
-    min_available_clients:  int = 40
+    min_clients:            int = 10
+    min_evaluate_clients:   int = 10
+    min_available_clients:  int = 20
     
     poly_modulus_degree:    int = 4096
     plain_modulus:          int = 1032193

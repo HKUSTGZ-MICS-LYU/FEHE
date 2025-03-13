@@ -1,13 +1,13 @@
 # 定义变量
 PYTHON = python3
-BSUB = bsub -q gpu -Is 
+BSUB = bsub -q gpu -Is -gpu "num=1" 
 # BSUB = bsub -q bmcpu -Is
 
 
 SERVER_SCRIPT = create_server.py
 CLIENT_SCRIPT = create_client.py
 SRC_DIR = encrypted
-NUM_CLIENTS = 40
+NUM_CLIENTS = 20
 # 默认目标
 all: 
 	@echo "Please specify a target !!!"
