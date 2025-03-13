@@ -42,7 +42,7 @@ class ServerConfig:
     poly_modulus_degree:    int = 4096
     plain_modulus:          int = 1032193
     quant_bits:             int = 8
-    quant_area:             int = 5
+    quant_area:             int = 4
     quant_method:           str = "naive"
     encrypted_dir:          str = "encrypted"
     round_timeout:          Optional[float] = None
