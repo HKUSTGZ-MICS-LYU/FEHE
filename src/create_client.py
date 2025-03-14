@@ -254,7 +254,7 @@ def main():
     parser.add_argument("--min_lr",         type=float, default=1e-6)
     parser.add_argument("--scheduler",      type=str,   default="cosine", choices=["cosine", "step"])
     parser.add_argument("--optimizer",      type=str,   default="sgd", choices=["adam", "sgd"])
-    parser.add_argument("--batch-size",     type=int,   default=1)
+    parser.add_argument("--batch-size",     type=int,   default=2)
     parser.add_argument("--IID",            type=bool,  default=False)
     parser.add_argument("--alpha",          type=float, default=1.0)
     parser.add_argument("--model_name",     type=str,   default="LeNet5")
@@ -263,9 +263,6 @@ def main():
     config = ClientConfig(**vars(args))
     
 
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()  # 清理GPU缓存
-        
     
     # Initialize components
     model = load_model(config.model_name, config.dataset_name)
