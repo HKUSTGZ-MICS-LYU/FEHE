@@ -199,78 +199,162 @@ class Quantizer:
             quantized_parts: List of quantized data for each region
             params: Dictionary containing quantization parameters
         """
+        # Ensure len(sigma_bits)%2 == 0
+
         data = np.array(data)
         mu = global_mu
         sigma = global_sigma
         n = len(sigma_bits)
    
         # Define masks for each region
-        masks = []
-        masks.append(np.abs(data - mu) > (n - 1) * sigma)   
-        for i in range(1, n - 1):
-            lower = (n - 1 - i) * sigma
-            upper = (n - i) * sigma
-            masks.append((np.abs(data - mu) > lower) & (np.abs(data - mu) <= upper))
-        masks.append(np.abs(data - mu) <= sigma)
-     
-        flat_data = data.flatten()
-        flattened_quantized = np.zeros_like(flat_data, dtype=np.int32)
-        scales = []
-        min_vals = []
-        region_map = np.zeros_like(flat_data, dtype=np.int32)  
-        
-        for i, mask in enumerate(masks):
-            flat_mask = mask.flatten()
-            indices = np.where(flat_mask)[0]
-            if len(indices) > 0:
-                region_data = flat_data[indices]
-                quantized_part, scale, min_val = self.quantize_weights(region_data, sigma_bits[i])
-                flattened_quantized[indices] = quantized_part
-                region_map[indices] = i
+        ranges = []
+        labels = []
+        for i in range(-n, n+1):
+            if i == -n:
+                ranges.append((-np.inf, mu - n * sigma))
+                labels.append(f"-{n}sigma")
+            elif i == n:
+                ranges.append((mu + n * sigma, np.inf))
+                labels.append(f"{n}sigma")
             else:
-                scale, min_val = 0.0, 0.0
-            scales.append(scale)
-            min_vals.append(min_val)
+                lower = mu + i * sigma
+                upper = mu + (i + 1) * sigma
+                ranges.append((lower, upper))
+                labels.append(f"{i}sigma")
+        
+        # Create initial index map
+        index_map = {label: [] for label in labels}
+        for idx, val in enumerate(data):
+            for label, (lower, upper) in zip(labels, ranges):
+                if lower <= val < upper:
+                    index_map[label].append(idx)
+                    break
+            
+        while True:
+            merged = False
+            current_labels = list(index_map.keys())
+            
+            for i in range(len(current_labels)):
+                label = current_labels[i]
+                if label not in index_map:
+                    continue
+                indices = index_map[label]
+                if len(indices) == 0:
+                    del index_map[label]
+                    merged = True
+                    break
+                segment = data[indices]
+                q_min, q_max = np.min(segment), np.max(segment)
+                needs_merge = len(indices) <= 1 or q_min == q_max
+                if needs_merge:
+                    neighbors = []
+                    if i > 0:
+                        prev_label = current_labels[i-1]
+                        if prev_label in index_map:
+                            neighbors.append(prev_label)
+                    if i < len(current_labels)-1:
+                        next_label = current_labels[i+1]
+                        if next_label in index_map:
+                            neighbors.append(next_label)
+                    # Merge logic
+                    if neighbors:
+                        # Prefer merging with larger neighbor
+                        target = max(neighbors, key=lambda x: len(index_map[x]))
+                        index_map[target].extend(indices)
+                        del index_map[label]
+                        merged = True
+                        break
+            if not merged:
+                break
+            
+        reconstructed = np.zeros_like(data, dtype=np.int32)
+        quantized_parts = {}
+        scales = {}
+        min_vals = {}
+        
+        for label, indices in index_map.items():
+            if not indices:
+                continue
+            segment = data[indices]
+            lower_bound, upper_bound = ranges[labels.index(label)]
+          
+            if np.isinf(lower_bound):
+                lower_bound = np.min(segment) if len(segment) > 0 else mu - (n+1) * sigma
+            if np.isinf(upper_bound):
+                upper_bound = np.max(segment) if len(segment) > 0 else mu + (n+1) * sigma
+        
+        
+            label_idx = labels.index(label)
+            if label_idx < len(sigma_bits):
+                bits = sigma_bits[label_idx]
+            else:
+                # 使用默认位数作为后备
+                bits = sigma_bits[-1]  # 使用最后一个值作为默认
+        
+            quantized_part, scale, min_val = self.quantize_weights(
+                segment, 
+                bits,
+                global_max=upper_bound,
+                global_min=lower_bound
+            )
+            reconstructed[indices] = quantized_part
+            quantized_parts[label] = quantized_part
+            scales[label] = scale
+            min_vals[label] = min_val
             
         params = {
             'sigma_bits': sigma_bits,
             'scales': scales,
             'min_vals': min_vals,
-            'region_map': region_map,
-            'original_shape': data.shape
+            'ranges': ranges,
+            'labels': labels,
+            'index_map': index_map,
+            'global_mu': global_mu,
+            'global_sigma': global_sigma
         }
-        return flattened_quantized, params
-    
-    def sigma_dequantize(self, flattened_quantized, params):
+ 
+        return reconstructed, params
+                
+
+    def sigma_dequantize(self, reconstructed, params):
         """
-        Dequantization of flattened sigma-quantized weights
+        反量化sigma量化的权重
         
         Args:
-            flattened_quantized: Flattened quantized data
-            params: Dictionary containing region information
+            reconstructed: 量化后的数据
+            params: 包含量化参数的字典
         
         Returns:
-            dequantized_data: Reshaped dequantized data
+            dequantized_data: 反量化后的数据
         """
         scales = params['scales']
         min_vals = params['min_vals']
-        region_map = params['region_map']
-        original_shape = params['original_shape']
+        index_map = params['index_map']
+        labels = params['labels']
         
         # 确保输入数据是numpy数组
-        flattened_quantized = np.array(flattened_quantized)
-        dequantized_flat = np.zeros_like(flattened_quantized, dtype=float)
+        reconstructed = np.array(reconstructed)
+        dequantized = np.zeros_like(reconstructed, dtype=float)
         
-        # 对每个区域进行反量化
-        for i in range(len(scales)):
-            # 确保indices是整数类型
-            region_indices = np.where(region_map == i)[0].astype(int)
-            if len(region_indices) > 0:
-                q_data = flattened_quantized[region_indices]
-                dq_data = self.dequantize_weights(q_data, scales[i], min_vals[i])
-                dequantized_flat[region_indices] = dq_data
+        # 对每个标签区域进行反量化
+        for label, indices in index_map.items():
+            if not indices or label not in scales:
+                continue
+                
+            # 获取该区域的量化参数
+            scale = scales[label]
+            min_val = min_vals[label]
+            
+            # 获取该区域的量化数据
+            q_data = reconstructed[indices]
+            
+            # 反量化
+            dq_data = self.dequantize_weights(q_data, scale, min_val)
+            
+            # 将反量化数据放回原位置
+            dequantized[indices] = dq_data
         
-        return dequantized_flat.reshape(original_shape)
+        return dequantized
             
     
     def quantize_weights_unified(self, weight, n_bits, method='naive', **kwargs):
