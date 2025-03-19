@@ -38,14 +38,6 @@ from utils.train import train
 from utils.utils import get_parameters, set_parameters
 import hashlib
 
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["OPENBLAS_NUM_THREADS"] = "1" 
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["NUMEXPR_NUM_THREADS"] = "1"
-os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
-os.environ["BLIS_NUM_THREADS"] = "1"
-np.__config__.show()  # 验证设置是否生效
-torch.set_num_threads(2)
 
 @dataclass
 class ClientConfig:
@@ -96,7 +88,6 @@ class SecureClient(NumPyClient):
         config
     ) -> Tuple[NDArrays, int, Dict[str, Scalar]]:
         """Train model on local data with enhanced security measures."""     
-        torch.cuda.empty_cache() 
         set_parameters(self.model, parameters)
     
         # Merge configuration
@@ -275,7 +266,7 @@ def main():
     parser.add_argument("--min_lr",         type=float, default=1e-6)
     parser.add_argument("--scheduler",      type=str,   default="cosine", choices=["cosine", "step"])
     parser.add_argument("--optimizer",      type=str,   default="sgd", choices=["adam", "sgd"])
-    parser.add_argument("--batch-size",     type=int,   default=64)
+    parser.add_argument("--batch-size",     type=int,   default=2)
     parser.add_argument("--IID",            type=bool,  default=True)
     parser.add_argument("--alpha",          type=float, default=1.0)
     parser.add_argument("--model_name",     type=str,   default="LeNet5")

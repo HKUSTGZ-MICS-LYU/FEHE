@@ -1,13 +1,13 @@
 # 定义变量
 PYTHON = python3
-BSUB = bsub -q gpu -Is -gpu "num=1:mode=shared" 
-CLIENTS_PER_GPU = 5 
+BSUB = bsub -q gpu -Is -gpu "num=1" 
+# BSUB = bsub -q bmcpu -Is
+
 
 SERVER_SCRIPT = create_server.py
 CLIENT_SCRIPT = create_client.py
 SRC_DIR = encrypted
 NUM_CLIENTS = 50
-MAX_CONCURRENT = 5
 # 默认目标
 all: 
 	@echo "Please specify a target !!!"
@@ -29,24 +29,10 @@ client:
 # 运行多个客户端
 clients:
 	while [ ! -f server_address.txt ]; do sleep 1; done
-	# 按批次启动客户端
-	for batch in $$(seq 0 $$(( ($(NUM_CLIENTS) + $(MAX_CONCURRENT) - 1) / $(MAX_CONCURRENT) - 1 )) ); do \
-		echo "Starting batch $${batch}..."; \
-		for i in $$(seq 0 $$(($(MAX_CONCURRENT) - 1))); do \
-			client_id=$$((batch * $(MAX_CONCURRENT) + i)); \
-			if [ $$client_id -lt $(NUM_CLIENTS) ]; then \
-				echo "Launching client $${client_id}"; \
-				if [ $$((client_id % $(CLIENTS_PER_GPU))) -eq 0 ]; then \
-					$(BSUB) $(PYTHON) $(CLIENT_SCRIPT) --partition-id=$$client_id --client-number=$(NUM_CLIENTS) & \
-				else \
-					$(PYTHON) $(CLIENT_SCRIPT) --partition-id=$$client_id --client-number=$(NUM_CLIENTS) & \
-				fi; \
-			fi; \
-		done; \
-		echo "Waiting for batch $${batch} to initialize..."; \
-		sleep 20; \
+	for i in $$(seq 0 $(shell echo $$(($(NUM_CLIENTS) - 1)))); do \
+		$(BSUB) $(PYTHON) $(CLIENT_SCRIPT) --partition-id=$$i --client-number=$(NUM_CLIENTS) & \
 	done
-	wait
+	wait  # 等待所有后台任务完成
 
 # 清理 src 目录
 clean:

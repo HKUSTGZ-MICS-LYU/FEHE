@@ -12,6 +12,13 @@ def train(
 ):
     """Train the network on the training set."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # 训练前添加的诊断代码
+    if device.type == 'cuda':
+        print(f"CUDA版本: {torch.version.cuda}")
+        print(f"当前GPU: {torch.cuda.get_device_name()}")
+        print(f"GPU可用内存: {torch.cuda.get_device_properties(0).total_memory/1e9:.2f} GB")
+        print(f"GPU已用内存: {(torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_reserved())/1e9:.2f} GB")
+        torch.cuda.empty_cache()
     net = net.to(device)
     criterion = torch.nn.CrossEntropyLoss()
 
