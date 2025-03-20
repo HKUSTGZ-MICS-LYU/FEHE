@@ -29,6 +29,7 @@ from flwr.server.strategy import FedAvg
 from flwr.client import NumPyClient
 
 # Local Libraries
+from create_client import load_model
 from utils import encryption
 from utils import filedata as fd
 from utils.quantization import Quantizer
@@ -565,13 +566,14 @@ def run_client(args, partition_id: int):
 
     # 加载数据
     trainloader, valloader, testloader = load_datasets(
-        dataset_name = config.dataset_name,
-        client_number = config.client_number,
-        batch_size = config.batch_size,
-        partition_id = config.partition_id,
-        federated=True,
+        DATASET_NAME = config.dataset_name,
+        CLIENT_NUMER = config.client_number,
+        BATCH_SIZE = config.batch_size,
+        PARTITION_ID = config.partition_id,
+        FEDERATED=True,
         IID=config.IID,
-        alpha=config.alpha
+        alpha=config.alpha,
+        samples_per_client=None
     )
 
     # 加载模型
