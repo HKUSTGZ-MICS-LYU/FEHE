@@ -54,6 +54,8 @@ class ClientConfig:
     model_name: str = "LeNet5"
     dataset_name: str = "FASHIONMNIST"
     encrypted_dir: str = "encrypted"
+    total_clients: int = None
+    selected_clients: int = None
  
 class SecureClient(NumPyClient):
     """Federadeted Learning Client with Encrypted and Quantized Support"""
@@ -85,7 +87,7 @@ class SecureClient(NumPyClient):
         parameters,
         config
     ) -> Tuple[NDArrays, int, Dict[str, Scalar]]:
-        """Train model on local data with enhanced security measures."""      
+        """Train model on local data with enhanced security measures."""     
         set_parameters(self.model, parameters)
     
         # Merge configuration
@@ -95,7 +97,10 @@ class SecureClient(NumPyClient):
             "scheduler": self.config.scheduler,
             **config
         }
-  
+        
+        self.config.total_clients = config.get("total_clients")
+        self.config.selected_clients = config.get("selected_clients")
+        self.total_rounds = config.get("num_rounds")
         # Training phase
         start_time = time.time()
         self.model = train(
@@ -112,7 +117,7 @@ class SecureClient(NumPyClient):
         params_path = f"{self.config.encrypted_dir}/client_{self.config.partition_id}_params.pth"
         torch.save(self.model.state_dict(), params_path)
         
-        return get_parameters(self.model), len(self.trainloader), {"pid": self.config.partition_id}
+        return get_parameters(self.model), len(self.trainloader), {"pid": self.config.partition_id, "model": self.config.model_name, "dataset": self.config.dataset_name, "IID": self.config.IID}
         
     def evaluate(
         self,
@@ -152,7 +157,7 @@ class SecureClient(NumPyClient):
         self.accuracy_log[config.get("server_round")] = accuracy
         
         
-        if config.get("server_round") == 100:
+        if config.get("server_round") ==  100:
             self._finalize_training()
         
         return loss, len(self.valloader), {"accuracy": float(accuracy)}
@@ -170,7 +175,11 @@ class SecureClient(NumPyClient):
 
     def _save_accuracy_csv(self):
         """Save the accuracy log to a CSV file."""
-        csv_path = f"{self.config.encrypted_dir}/client_{self.config.partition_id}_accuracy.csv"
+        if self.config.IID:
+            csv_path = f"Experiment/{self.config.model_name}_{self.config.dataset_name}/{self.config.total_clients}_{self.config.selected_clients}/IID/client_{self.config.partition_id}_accuracy.csv"
+            print(csv_path)
+        else:
+            csv_path = f"Experiment/{self.config.model_name}_{self.config.dataset_name}/{self.config.total_clients}_{self.config.selected_clients}/NONIID/client_{self.config.partition_id}_accuracy.csv"
         try:
             with open(csv_path, "w") as f:
                 f.write("round,accuracy\n")
@@ -182,7 +191,10 @@ class SecureClient(NumPyClient):
     
     def _save_time_stats(self):
         """Save time metrics to a CSV file."""
-        stats_path = f"{self.config.encrypted_dir}/client_{self.config.partition_id}_time_stats.csv"
+        if self.config.IID:
+            stats_path = f"Experiment/{self.config.model_name}_{self.config.dataset_name}/{self.config.total_clients}_{self.config.selected_clients}/IID/client_{self.config.partition_id}_time_stats.csv"
+        else:
+            stats_path = f"Experiment/{self.config.model_name}_{self.config.dataset_name}/{self.config.total_clients}_{self.config.selected_clients}/NONIID/client_{self.config.partition_id}_time_stats.csv"
         try:
             with open(stats_path, "w") as f:
                 f.write("operation,round,time\n")
@@ -254,14 +266,15 @@ def main():
     parser.add_argument("--min_lr",         type=float, default=1e-6)
     parser.add_argument("--scheduler",      type=str,   default="cosine", choices=["cosine", "step"])
     parser.add_argument("--optimizer",      type=str,   default="sgd", choices=["adam", "sgd"])
-    parser.add_argument("--batch-size",     type=int,   default=16)
-    parser.add_argument("--IID",            type=bool,  default=False)
+    parser.add_argument("--batch-size",     type=int,   default=2)
+    parser.add_argument("--IID",            type=bool,  default=True)
     parser.add_argument("--alpha",          type=float, default=1.0)
-    parser.add_argument("--model_name",     type=str,   default="ResNet18")
-    parser.add_argument("--dataset_name",   type=str,   default="CIFAR100")
+    parser.add_argument("--model_name",     type=str,   default="LeNet5")
+    parser.add_argument("--dataset_name",   type=str,   default="FASHIONMNIST")
     args = parser.parse_args()
     config = ClientConfig(**vars(args))
     
+
     
     # Initialize components
     model = load_model(config.model_name, config.dataset_name)

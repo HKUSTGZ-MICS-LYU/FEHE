@@ -37,13 +37,13 @@ class ServerConfig:
     
     min_clients:            int = 20
     min_evaluate_clients:   int = 20
-    min_available_clients:  int = 40
-    
+    min_available_clients:  int = 50
+
     poly_modulus_degree:    int = 4096
     plain_modulus:          int = 1032193
     quant_bits:             int = 8
-    quant_area:             int = 5
-    quant_method:           str = "naive"
+    quant_area:             int = 4
+    quant_method:           str = "sigma"
     encrypted_dir:          str = "encrypted"
     round_timeout:          Optional[float] = None
     
@@ -55,7 +55,9 @@ class SecureAggregationStrategy(FedAvg):
             return {
                 "server_round": server_round,
                 "local_epochs": 10,
-                "num_rounds": config.num_rounds
+                "num_rounds": config.num_rounds,
+                "total_clients": config.min_available_clients,
+                "selected_clients": config.min_clients,
             }
 
         def evaluate_config(server_round: int) -> Dict:
@@ -83,6 +85,9 @@ class SecureAggregationStrategy(FedAvg):
         self._initialize_metrics()
         Path(config.encrypted_dir).mkdir(exist_ok=True)
         self.quantizer = Quantizer()
+        self.model_name = None
+        self.dataset_name = None
+        self.IID = None
   
 
     def _initialize_metrics(self) -> None:
@@ -101,10 +106,15 @@ class SecureAggregationStrategy(FedAvg):
     
     def aggregate_fit(self, server_round: int, results, failurs):
         """Secure aggregation pipeline with homomorphic encryption."""
+
         
         client_ids = []
         for _, client in results:
             client_ids.append(client.metrics['pid'])
+            if self.model_name is None:
+                self.model_name = client.metrics['model']
+                self.dataset_name = client.metrics['dataset']
+                self.IID = client.metrics['IID']
             
         # Save to file
         with open(f"{self.config.encrypted_dir}/aggregate_client_ids.txt", "w") as f:
@@ -114,6 +124,12 @@ class SecureAggregationStrategy(FedAvg):
         
         # Phase 1: Parameter Collection
         client_params = self._collect_client_parameters(results)
+        # # save the parameters to the file in value format
+        # with open(f"{self.config.encrypted_dir}/client_params.txt", "w") as f:
+        #     for param in client_params:
+        #         for key, value in param.items():
+        #             f.write(f"{key}: {value}\n")
+        #         f.write("\n")
         
         # Phase 2: Parameter Processing
         quantized_layers, non_quantized = self._categorize_parameters(client_params)
@@ -127,7 +143,12 @@ class SecureAggregationStrategy(FedAvg):
         for name in aggregated_params:
             shape = next(p[name].shape for p in client_params)  
             reshaped_params[name] = aggregated_params[name].view(shape)
-    
+        
+        # with open(f"{self.config.encrypted_dir}/aggregated_params.txt", "w") as f:
+        #     for key, value in reshaped_params.items():
+        #         f.write(f"{key}: {value}\n")
+                
+     
         torch.save(reshaped_params, f"{self.config.encrypted_dir}/aggregated_params.pth")  
               
         # Calculate hash of aggregated parameters
@@ -305,17 +326,24 @@ class SecureAggregationStrategy(FedAvg):
     def _save_metrics(self) -> None:
         """Save all collected metrics to files."""
         try: 
-            # Save time metrics
-            with open(f"{self.config.encrypted_dir}/server_time_stats.csv", "w") as f:
+            if self.IID:
+                time_pth = f"Experiment/{self.model_name}_{self.dataset_name}/{self.config.min_available_clients}_{self.config.min_clients}/IID/server_time_stats.csv"
+            else:
+                time_pth = f"Experiment/{self.model_name}_{self.dataset_name}/{self.config.min_available_clients}_{self.config.min_clients}/NONIID/server_time_stats.csv"
+            with open(time_pth, "w") as f:
                 f.write("operation,time\n")
                 for operation, times in self.time_metrics.items():
                     for t in times:
                         f.write(f"{operation},{t}\n")
             
             # Save communication stats
-            with open(f"{self.config.encrypted_dir}/total_communication.csv", "w") as f:
+            if self.IID:
+                comm_pth = f"Experiment/{self.model_name}_{self.dataset_name}/{self.config.min_available_clients}_{self.config.min_clients}/IID/server_communication.csv"
+            else:
+                comm_pth = f"Experiment/{self.model_name}_{self.dataset_name}/{self.config.min_available_clients}_{self.config.min_clients}/NONIID/server_communication.csv"
+            with open(comm_pth, "w") as f:
                 f.write(f"Total communication (GB),{self.total_communication / 1024 ** 3}")
-                
+
             logging.info("All metrics saved successfully")
         except Exception as e:
             logging.error(f"Error saving metrics: {str(e)}")

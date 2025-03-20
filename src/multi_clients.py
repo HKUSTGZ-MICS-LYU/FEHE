@@ -152,7 +152,7 @@ def distribute_data(trainset, num_clients, iid=True):
 
 ### 客户端类 ###
 class Client:
-    def __init__(self, client_id, model, data_indices, trainset, device, context):
+    def __init__(self, client_id, model, data_indices, trainset, device):
         """客户端初始化"""
         self.client_id = client_id
         self.model = copy.deepcopy(model).to(device)
@@ -161,7 +161,6 @@ class Client:
         self.trainloader = DataLoader(Subset(trainset, data_indices), batch_size=128, shuffle=True)
         self.optimizer = optim.SGD(self.model.parameters(), lr=0.01, momentum=0.9, weight_decay=5e-4)
         self.device = device
-        self.context = context
         self.accuracy = {}
 
     def train(self, criterion, epochs=1):
@@ -330,15 +329,11 @@ def aggregate_weights(encrypted_weights, non_quantized_params):
     aggregated_non_encrypted_weights = {}
     
     # 处理加密的权重
-    for name, weights in encrypted_weights.items():
-        for weight in weights:
-            for chunk_idx, chunk in enumerate(weight):
-                if name not in aggregated_encrypted_weights:
-                    aggregated_encrypted_weights[name] = []
-                if chunk_idx >= len(aggregated_encrypted_weights[name]):
-                    aggregated_encrypted_weights[name].append(chunk)
-                else:
-                    aggregated_encrypted_weights[name][chunk_idx] += chunk
+    for name, params in encrypted_weights.items():
+        if name not in aggregated_encrypted_weights:
+            aggregated_encrypted_weights[name] = np.array(params)
+        else:
+            aggregated_encrypted_weights[name] += np.array(params)
                     
     # 处理未加密的权重
     for name, param in non_quantized_params.items():
@@ -404,21 +399,13 @@ def federated_learning(
     print('=' * 50)
     
     
-    
-    # 设置加密context
-    context = ts.context(
-        ts.SCHEME_TYPE.BFV, 
-        poly_modulus_degree=polynomial_degree, 
-        plain_modulus=1032193
-        )
-    context.generate_galois_keys()
-    context.global_scale = 2**40  # 设置精度参数
+
     # 设置quantization参数
     quantizer = Quantizer()
     
     # 数据分配和客户端初始化
     client_data_indices = distribute_data(trainset, num_clients, iid)
-    clients = [Client(i, global_model, indices, trainset, device, context) for i, indices in enumerate(client_data_indices)]
+    clients = [Client(i, global_model, indices, trainset, device) for i, indices in enumerate(client_data_indices)]
     
     criterion = nn.CrossEntropyLoss()
     mean_clients_acc = []
@@ -454,21 +441,17 @@ def federated_learning(
         # 量化选中客户端的权重
         quantized_weights, quantized_weights_param, non_quantized_params = quantize_weights(selected_weights, quantizer, n_bits=n_bits, method=method)
         
-        # 加密选中客户端的权重
-        encrypted_weights = encrypt_weights(quantized_weights, context, chunk_size=polynomial_degree)
         
         # 聚合加密的权重
-        aggregated_encrypted_weights, aggregated_non_encrypted_weights = aggregate_weights(encrypted_weights, non_quantized_params)
+        aggregated_quantized_weights, aggregated_non_encrypted_weights = aggregate_weights(quantized_weights, non_quantized_params)
         
-        # 解密聚合的权重
-        decrypted_weights = decrypt_weights(aggregated_encrypted_weights, context)
         
         # 用选中的数量进行平均模型
-        decrypted_weights = {name: param / select_num_clients for name, param in decrypted_weights.items()}
+        dequantized_weights = {name: param / select_num_clients for name, param in aggregated_quantized_weights.items()}
         aggregated_non_encrypted_weights = {name: param / select_num_clients for name, param in aggregated_non_encrypted_weights.items()}
         
         # 反量化权重
-        dequantized_weights = dequantize_weights(quantizer, decrypted_weights, quantized_weights_param)
+        dequantized_weights = dequantize_weights(quantizer, dequantized_weights, quantized_weights_param)
         
         # 根据dequantized_weights和aggregated_non_encrypted_weights构造新的全局模型
         new_global_model = copy.deepcopy(global_model)
@@ -569,7 +552,7 @@ def main():
     parser.add_argument('--dataset', type=str, choices=['CIFAR10', 'CIFAR100', 'FASHIONMNIST'], default='FASHIONMNIST')
     parser.add_argument('--lr', type=float, default=0.01)
     parser.add_argument('--rounds', type=int, default=20)
-    parser.add_argument('--local_epochs', type=int, default=1)
+    parser.add_argument('--local_epochs', type=int, default=5)
     parser.add_argument('--num_clients', type=int, default=10)
     parser.add_argument('--select_num_clients', type=int, default=4)
     parser.add_argument('--iid', default = True, action='store_true', help='Use IID data distribution')

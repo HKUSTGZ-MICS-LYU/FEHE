@@ -3,14 +3,22 @@ import pandas as pd
 import os
 import numpy as np
 import glob
+import re
 
 # Read all available accuracy logs
 client_accuracy = {}
 # 使用 glob 查找所有客户端的日志文件
-for csv_path in glob.glob("encrypted/client_*_accuracy.csv"):
-    # 从文件名中提取客户端ID
-    client_id = int(csv_path.split('_')[1])
-    client_accuracy[client_id] = pd.read_csv(csv_path)
+for csv_path in glob.glob("/hpc/home/connect.xmeng027/Work/FEHE/src/Experiment/LeNet5_FASHIONMNIST/10_10/IID/client_*_accuracy.csv"):
+    # 从文件名中提取客户端ID，使用更可靠的方法
+    filename = os.path.basename(csv_path)
+    # 使用正则表达式匹配"client_X_accuracy.csv"中的X
+    match = re.search(r'client_(\d+)_accuracy\.csv', filename)
+    if match:
+        client_id = int(match.group(1))
+        print(f"找到客户端 {client_id} 的准确率日志: {filename}")
+        client_accuracy[client_id] = pd.read_csv(csv_path)
+    else:
+        print(f"警告: 无法从文件名 {filename} 中提取客户端ID")
 
 if not client_accuracy:
     print("No accuracy logs found!")
