@@ -169,6 +169,7 @@ class SecureAggregationStrategy(FedAvg):
         decide whether to quantize the layer
         only quantize the weights and biases of the convolutional layer and the fully connected layer
         """
+        # if name is 'conv1'
         
         # identify target layers
         is_target_layer = any(key in name.lower() for key in ('conv', 'fc', 'linear'))

@@ -24,7 +24,20 @@ from models import *
 from utils.quantization import *
 
 
-
+def is_quantizable(name: str) -> bool:
+    """
+    decide whether to quantize the layer
+    only quantize the weights and biases of the convolutional layer and the fully connected layer
+    """
+    
+    # identify target layers
+    is_target_layer = any(key in name.lower() for key in ('conv', 'fc', 'linear'))
+    # identify weights and biases
+    is_weight_or_bias = any(key in name for key in ('weight', 'bias'))
+    # exclude batch normalization layers
+    is_excluded = any(key in name for key in ('bn', 'batch', 'running_', 'num_batches'))
+    
+    return is_target_layer and is_weight_or_bias and not is_excluded
 
 def load_dataset(dataset_name, batch_size=128):
     transform = transforms.Compose([])
@@ -109,7 +122,7 @@ def train_model(model, trainloader, criterion, optimizer, device, epochs=100, qu
         if test_acc > best_acc:
             print(f"Saving model with test accuracy of {test_acc:.2f}% at epoch {epoch+1}")
             best_acc = test_acc
-            torch.save(model.state_dict(), f'../Experiment/{model_name}_{dataset_name}/{model_name}_{dataset_name}_best.pth')
+            torch.save(model.state_dict(), f'./src/Experiment/{model_name}_{dataset_name}/{model_name}_{dataset_name}_best.pth')
 
     return train_accs, test_accs, quant_accs
 
@@ -145,14 +158,16 @@ def evaluate_quantized_model(original_model, testloader, n_bits=8, method='sigma
     quantized_model = copy.deepcopy(original_model)
     
     # Extract weights from convolutional and linear layers
-    layers = {
-        name: {
-            'weight': module.weight.detach().cpu().numpy(),
-            'shape': module.weight.shape
-        }
-        for name, module in original_model.named_modules()
-        if isinstance(module, (nn.Conv2d, nn.Linear))
-    }
+    layers = {}
+    for name, module in quantized_model.named_modules():
+        if isinstance(module, (nn.Conv2d, nn.Linear)) or is_quantizable(name):
+            weight = module.weight.data.cpu()
+            shape = weight.shape
+            layers[name] = {
+                'weight': weight.numpy(),
+                'shape': shape
+            }
+ 
     
     # Quantize each layer
     quantized_layers = {}
@@ -160,6 +175,8 @@ def evaluate_quantized_model(original_model, testloader, n_bits=8, method='sigma
         weight = layer['weight'].flatten()
         layer_max = np.max(weight)
         layer_min = np.min(weight)
+        layer_mu = np.mean(weight)
+        layer_sigma = np.std(weight)
         
         # Perform quantization
         quantized_weight, params = quantizer.quantize_weights_unified(
@@ -167,7 +184,9 @@ def evaluate_quantized_model(original_model, testloader, n_bits=8, method='sigma
             n_bits=n_bits,
             method=method,
             global_max=layer_max,
-            global_min=layer_min
+            global_min=layer_min,
+            global_mu=layer_mu,
+            global_sigma=layer_sigma
         )
         
         quantized_layers[name] = {
@@ -260,7 +279,7 @@ def main():
                                                         ], default='LeNet5')
     parser.add_argument('--dataset', type=str, choices=['CIFAR10', 'CIFAR100', 'FASHIONMNIST'], default='CIFAR10')
     parser.add_argument('--lr', type=float, default=0.01)
-    parser.add_argument('--epochs', type=int, default=10)
+    parser.add_argument('--epochs', type=int, default=1)
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--quantize', default= True, action='store_true', help='Enable quantization evaluation')
     parser.add_argument('--n_bits', type=int, default=8, help='Bits for quantization')

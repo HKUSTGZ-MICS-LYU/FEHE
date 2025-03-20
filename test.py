@@ -5,100 +5,64 @@ import tenseal as ts
 import time
 import numpy as np
 
-# 创建TenSEAL上下文
-context1 = ts.Context(
-    ts.SCHEME_TYPE.BFV,
-    poly_modulus_degree=4096,
-    plain_modulus=65537,  # Must be prime and congruent to 1 modulo 2n
-    coeff_mod_bit_sizes=[32,32,32]
-)
-context1.generate_galois_keys()
-context2 = ts.Context(
-    ts.SCHEME_TYPE.BFV,
-    poly_modulus_degree=8192,
-    plain_modulus=65537,  # Must be prime and congruent to 1 modulo 2n
-    coeff_mod_bit_sizes=[32,32,32,32]
-)
-context2.generate_galois_keys()
-context3 = ts.Context(
-    ts.SCHEME_TYPE.BFV,
-    poly_modulus_degree=16384,
-    plain_modulus=65537,  # Must be prime and congruent to 1 modulo 2n
-    coeff_mod_bit_sizes=[32,32,32,32,32]
-)
-context3.generate_galois_keys()
+# 创建四种不同参数的TenSEAL上下文
+contexts = {
+    4096: ts.Context(ts.SCHEME_TYPE.CKKS, poly_modulus_degree=4096),
+    # 8192: ts.Context(ts.SCHEME_TYPE.CKKS, poly_modulus_degree=8192),
+    # 16384: ts.Context(ts.SCHEME_TYPE.CKKS, poly_modulus_degree=16384),
+    # 32768: ts.Context(ts.SCHEME_TYPE.CKKS, poly_modulus_degree=32768)
+}
+
+# 为每个上下文生成Galois密钥并设置全局scale
+for context in contexts.values():
+    context.generate_galois_keys()
+    context.global_scale = 2**40
 
 # 测试次数
 num_tests = 1
-encrypt_times1 = []
-decrypt_times1 = []
-encrypt_times2 = []
-decrypt_times2 = []
-encrypt_times3 = []
-decrypt_times3 = []
 
-for i in range(num_tests):
+# 存储每种框架的加密和解密时间
+results = {size: {'encrypt_times': [], 'decrypt_times': []} for size in contexts.keys()}
+
+for _ in range(num_tests):
     # 生成随机向量
-    random_vector = np.random.randint(0, 30, 4096*4)
+    random_vector = np.random.uniform(0, 30, 4096)
     
-    # 测试加密时间
-    start_time = time.time()
-    encrypted_vector = ts.bfv_vector(context3, random_vector)
-    encrypt_times3.append(time.time() - start_time)
-    print(f"Size of Encryption Vector with slot 16394 : {sys.getsizeof(encrypted_vector)}")
-    
-    # 测试解密时间
-    start_time = time.time()
-    decrypted_vector = encrypted_vector.decrypt()
-    decrypt_times3.append(time.time() - start_time)
-    
-    if random_vector.tolist() != decrypted_vector:
-        print("Decryption failed!")
-        print(random_vector)
-        print(decrypted_vector)
+    # 对每种框架进行测试
+    for size, context in contexts.items():
+        num_splits = 4096 // size
+        encry_list = []
         
-    encry_list = []
-    start_time = time.time()
-    for i in range(2):
-        encry_list.append(ts.bfv_vector(context2, random_vector[i*8192:(i+1)*8192]))
-    encrypt_times2.append(time.time() - start_time)
-    print("Size of Encryption Vector with slot 8192 : ", sys.getsizeof(encry_list[0]))
-    
-    decry_list = []
-    start_time = time.time()
-    for i in range(2):
-        decry_list.append(encry_list[i].decrypt())
-    decrypt_times2.append(time.time() - start_time)
-    decry_list = decry_list[0] + decry_list[1]
-    
-    if random_vector.tolist() != decry_list:
-        print("Decryption failed!")
-        print(random_vector)
-        print(decry_list)
-    
-    encry_list = []
-    start_time = time.time()
-    for i in range(4):
-        encry_list.append(ts.bfv_vector(context1, random_vector[i*4096:(i+1)*4096]))
-    encrypt_times1.append(time.time() - start_time)
-    print("Size of Encryption Vector with slot 4096 : ", sys.getsizeof(encry_list[0]))
-    
-    decry_list = []
-    start_time = time.time()
-    for i in range(4):
-        decry_list.append(encry_list[i].decrypt())
-    decrypt_times1.append(time.time() - start_time)
-    
-    decry_list = decry_list[0] + decry_list[1] + decry_list[2] + decry_list[3]
-    
-    if random_vector.tolist() != decry_list:
-        print("Decryption failed!")
-        print(random_vector)
-        print(decry_list)
+        # 加密
+        start_time = time.time()
+        for i in range(num_splits):
+            vector_slice = random_vector[i*size:(i+1)*size]
+            encrypted = ts.ckks_vector(context, vector_slice)
+            encry_list.append(encrypted)
+        encrypt_time = time.time() - start_time
+        results[size]['encrypt_times'].append(encrypt_time)
         
-print("Average decryption time with 4096 slots: ", sum(decrypt_times1)/num_tests)
-print("Average encryption time with 8192 slots: ", sum(encrypt_times2)/num_tests)
-print("Average encryption time with 16384 slots: ", sum(encrypt_times3)/num_tests)
+        # 打印加密向量大小
+        print(f"Size of Encryption Vector with slot {size}: {sys.getsizeof(encry_list[0])}")
         
+        # 解密
+        decry_list = []
+        start_time = time.time()
+        for encrypted in encry_list:
+            decrypted = encrypted.decrypt()
+            decry_list.append(decrypted)
+        decrypt_time = time.time() - start_time
+        results[size]['decrypt_times'].append(decrypt_time)
         
-    
+        # 合并解密结果
+        decrypted_full = np.concatenate(decry_list)
+        
+        # 验证结果
+        if not np.allclose(random_vector, decrypted_full, rtol=1e-1, atol=1e-1):
+            print(f"Decryption failed for size {size}!")
+
+# 打印平均时间
+for size in contexts.keys():
+    print(f"\nResults for {size} slots:")
+    print(f"Average encryption time: {sum(results[size]['encrypt_times'])/num_tests:.4f} seconds")
+    print(f"Average decryption time: {sum(results[size]['decrypt_times'])/num_tests:.4f} seconds")
