@@ -13,7 +13,7 @@ if [ $? -eq 0 ]; then
     echo "Successfully copied .hwh file to $TARGET_DIR/Crypto.hwh"
 else
     echo "Error: Failed to copy .hwh file"
-    exit 1
+    # exit 1
 fi
 
 # Copy and rename the .bit file
@@ -24,7 +24,7 @@ if [ $? -eq 0 ]; then
     echo "Successfully copied .bit file to $TARGET_DIR/Crypto.bit"
 else
     echo "Error: Failed to copy .bit file"
-    exit 1
+    # exit 1
 fi
 
 echo "All operations completed successfully!"

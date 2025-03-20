@@ -8,7 +8,7 @@ import time
 POLY_DEGREE = 4096
 PLAINTEXT_MODULUS = 12289  # Should match FPGA's modulus
 BUFFER_SIZE = 4096 * 3
-MAX_REQUESTS = 100  # 设置最大请求次数
+MAX_REQUESTS = 10  # 设置最大请求次数
 RETRY_DELAY = 2     # 重试间隔(秒)
 MAX_RETRIES = 3     # 最大重试次数
 

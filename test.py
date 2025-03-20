@@ -6,63 +6,90 @@ import time
 import numpy as np
 
 # 创建四种不同参数的TenSEAL上下文
-contexts = {
+ckks_contexts = {
     4096: ts.Context(ts.SCHEME_TYPE.CKKS, poly_modulus_degree=4096),
-    # 8192: ts.Context(ts.SCHEME_TYPE.CKKS, poly_modulus_degree=8192),
-    # 16384: ts.Context(ts.SCHEME_TYPE.CKKS, poly_modulus_degree=16384),
-    # 32768: ts.Context(ts.SCHEME_TYPE.CKKS, poly_modulus_degree=32768)
+    8192: ts.Context(ts.SCHEME_TYPE.CKKS, poly_modulus_degree=8192),
+    16384: ts.Context(ts.SCHEME_TYPE.CKKS, poly_modulus_degree=16384),
+    32768: ts.Context(ts.SCHEME_TYPE.CKKS, poly_modulus_degree=32768)
 }
 
 # 为每个上下文生成Galois密钥并设置全局scale
-for context in contexts.values():
+for context in ckks_contexts.values():
     context.generate_galois_keys()
     context.global_scale = 2**40
 
-# 测试次数
-num_tests = 1
+
 
 # 存储每种框架的加密和解密时间
-results = {size: {'encrypt_times': [], 'decrypt_times': []} for size in contexts.keys()}
+results = {size: {'encrypt_times': [], 'decrypt_times': []} for size in ckks_contexts.keys()}
 
-for _ in range(num_tests):
-    # 生成随机向量
-    random_vector = np.random.uniform(0, 30, 4096)
-    
-    # 对每种框架进行测试
-    for size, context in contexts.items():
-        num_splits = 4096 // size
-        encry_list = []
-        
+
+# 生成随机向量
+random_vector = np.random.uniform(0, 30, 16384*512)
+for size, context in ckks_contexts.items():
+    # check the size of the context and may be it need to split the vector
+    for i in range(0, len(random_vector), size):
         # 加密
-        start_time = time.time()
-        for i in range(num_splits):
-            vector_slice = random_vector[i*size:(i+1)*size]
-            encrypted = ts.ckks_vector(context, vector_slice)
-            encry_list.append(encrypted)
-        encrypt_time = time.time() - start_time
-        results[size]['encrypt_times'].append(encrypt_time)
-        
-        # 打印加密向量大小
-        print(f"Size of Encryption Vector with slot {size}: {sys.getsizeof(encry_list[0])}")
+        start = time.time()
+        enc = ts.ckks_vector(context, random_vector[i:i+size])
+        end = time.time()
+        results[size]['encrypt_times'].append(end - start)
         
         # 解密
-        decry_list = []
-        start_time = time.time()
-        for encrypted in encry_list:
-            decrypted = encrypted.decrypt()
-            decry_list.append(decrypted)
-        decrypt_time = time.time() - start_time
-        results[size]['decrypt_times'].append(decrypt_time)
+        start = time.time()
+        dec = enc.decrypt()
+        end = time.time()
+        results[size]['decrypt_times'].append(end - start)
         
-        # 合并解密结果
-        decrypted_full = np.concatenate(decry_list)
-        
-        # 验证结果
-        if not np.allclose(random_vector, decrypted_full, rtol=1e-1, atol=1e-1):
-            print(f"Decryption failed for size {size}!")
+        # 检查解密结果是否正确
+        assert np.allclose(random_vector[i:i+size], dec, atol=1e-2)
+            
+# 打印结果
+print("CKKS encryption and decryption times")
+for size, result in results.items():
+    print(f"Context size: {size}")
+    print(f"Total encryption time: {sum(result['encrypt_times'])}s")
+    print(f"Total decryption time: {sum(result['decrypt_times'])}s")
+    print(f"Average encryption time: {np.mean(result['encrypt_times'])}s")
+    print(f"Average decryption time: {np.mean(result['decrypt_times'])}s")
+    print()
+    
+BFV_contexts = {
+    4096: ts.Context(ts.SCHEME_TYPE.BFV, poly_modulus_degree=4096, plain_modulus=1032193),
+    8192: ts.Context(ts.SCHEME_TYPE.BFV, poly_modulus_degree=8192, plain_modulus=1032193),
+    # 16384: ts.Context(ts.SCHEME_TYPE.BFV, poly_modulus_degree=16384, plain_modulus=1032193),
+    # 32768: ts.Context(ts.SCHEME_TYPE.BFV, poly_modulus_degree=32768, plain_modulus=1032193)
+}
 
-# 打印平均时间
-for size in contexts.keys():
-    print(f"\nResults for {size} slots:")
-    print(f"Average encryption time: {sum(results[size]['encrypt_times'])/num_tests:.4f} seconds")
-    print(f"Average decryption time: {sum(results[size]['decrypt_times'])/num_tests:.4f} seconds")
+for context in BFV_contexts.values():
+    context.global_scale = 2**40
+    
+results = {size: {'encrypt_times': [], 'decrypt_times': []} for size in BFV_contexts.keys()}
+
+
+
+random_vector = np.random.randint(0, 2, 4096*11415)
+for size, context in BFV_contexts.items():
+    for i in range(0, len(random_vector), size):
+        start = time.time()
+        enc = ts.bfv_vector(context, random_vector[i:i+size])
+        end = time.time()
+        results[size]['encrypt_times'].append(end - start)
+        
+        start = time.time()
+        dec = enc.decrypt()
+        end = time.time()
+        results[size]['decrypt_times'].append(end - start)
+        
+        assert np.allclose(random_vector[i:i+size], dec, atol=1e-2)
+            
+print("BFV encryption and decryption times")
+for size, result in results.items():
+    print(f"Context size: {size}")
+    print(f"Total encryption time: {sum(result['encrypt_times'])}s")
+    print(f"Total decryption time: {sum(result['decrypt_times'])}s")
+    print(f"Average encryption time: {np.mean(result['encrypt_times'])}s")
+    print(f"Average decryption time: {np.mean(result['decrypt_times'])}s")
+    print()
+    
+    

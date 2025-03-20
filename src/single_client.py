@@ -21,6 +21,7 @@ import torchvision.transforms as transforms
 
 # Local imports
 from models import *
+from models.alexnet import AlexNet
 from utils.quantization import *
 
 
@@ -74,12 +75,23 @@ def load_dataset(dataset_name, batch_size=128):
         ]
         trainset = torchvision.datasets.FashionMNIST(root='./data', train=True, download=True, transform=transform)
         testset = torchvision.datasets.FashionMNIST(root='./data', train=False, download=True, transform=transform)
-    
+    elif dataset_name == 'IMAGENET':
+        transform.transforms = [
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ]
+        trainset = torchvision.datasets.ImageNet(root='./data', train=True, download=True, transform=transform)
+        testset = torchvision.datasets.ImageNet(root='./data', train=False, download=True, transform=transform)
+        num_classes = 1000
+    else:
+        raise ValueError(f"Dataset {dataset_name} not supported.")
     trainloader = DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=2)
     testloader = DataLoader(testset, batch_size=100, shuffle=False, num_workers=2)
     return trainloader, testloader, num_classes
 
-def train_model(model, trainloader, criterion, optimizer, device, epochs=100, quantize=False, testloader=None, n_bits=8, method='sigma', model_name = 'model', dataset_name='Dataset'):
+def train_model(model, trainloader, criterion, optimizer, scheduler, device, epochs=100, quantize=False, testloader=None, n_bits=8, method='sigma', model_name = 'model', dataset_name='Dataset'):
     model.to(device)
     model.train()
     best_acc = 0
@@ -87,42 +99,42 @@ def train_model(model, trainloader, criterion, optimizer, device, epochs=100, qu
     test_accs = []
     quant_accs = []
 
-    for epoch in range(epochs):
-        correct, total = 0, 0
-        progress_bar = tqdm(trainloader, desc=f"Epoch {epoch+1}/{epochs}")
+    # for epoch in range(epochs):
+    #     correct, total = 0, 0
+    #     progress_bar = tqdm(trainloader, desc=f"Epoch {epoch+1}/{epochs}")
         
-        for inputs, targets in progress_bar:
-            inputs, targets = inputs.to(device), targets.to(device)
-            optimizer.zero_grad()
-            outputs = model(inputs)
-            loss = criterion(outputs, targets)
-            loss.backward()
-            optimizer.step()
+    #     for inputs, targets in progress_bar:
+    #         inputs, targets = inputs.to(device), targets.to(device)
+    #         optimizer.zero_grad()
+    #         outputs = model(inputs)
+    #         loss = criterion(outputs, targets)
+    #         loss.backward()
+    #         optimizer.step()
             
-            _, predicted = outputs.max(1)
-            total += targets.size(0)
-            correct += predicted.eq(targets).sum().item()
-            progress_bar.set_postfix(loss=loss.item())
+    #         _, predicted = outputs.max(1)
+    #         total += targets.size(0)
+    #         correct += predicted.eq(targets).sum().item()
+    #         progress_bar.set_postfix(loss=loss.item())
+    #     scheduler.step()
+    #     train_acc = 100. * correct / total
+    #     train_accs.append(train_acc)
 
-        train_acc = 100. * correct / total
-        train_accs.append(train_acc)
-
-        # 测试准确率
-        test_acc = test_model(model, testloader)
-        test_accs.append(test_acc)
+    #     # 测试准确率
+    #     test_acc = test_model(model, testloader)
+    #     test_accs.append(test_acc)
         
         # 量化评估
-        if quantize:
-            quant_acc = evaluate_quantized_model(copy.deepcopy(model), testloader, n_bits, method)
-            quant_accs.append(quant_acc)
-            print(f"Epoch {epoch+1}: Train Acc: {train_acc:.2f}% | Test Acc: {test_acc:.2f}% | Quant Acc: {quant_acc:.2f}%")
-        else:
-            print(f"Epoch {epoch+1}: Train Acc: {train_acc:.2f}% | Test Acc: {test_acc:.2f}%")
+    if quantize:
+        quant_acc = evaluate_quantized_model(copy.deepcopy(model), testloader, n_bits, method)
+        quant_accs.append(quant_acc)
+        # print(f"Epoch {epoch+1}: Train Acc: {train_acc:.2f}% | Test Acc: {test_acc:.2f}% | Quant Acc: {quant_acc:.2f}%")
+    # else:
+    #     print(f"Epoch {epoch+1}: Train Acc: {train_acc:.2f}% | Test Acc: {test_acc:.2f}%")
 
-        if test_acc > best_acc:
-            print(f"Saving model with test accuracy of {test_acc:.2f}% at epoch {epoch+1}")
-            best_acc = test_acc
-            torch.save(model.state_dict(), f'./src/Experiment/{model_name}_{dataset_name}/{model_name}_{dataset_name}_best.pth')
+    # if test_acc > best_acc:
+    #     print(f"Saving model with test accuracy of {test_acc:.2f}% at epoch {epoch+1}")
+    #     best_acc = test_acc
+    #     torch.save(model.state_dict(), f'./src/Experiment/{model_name}_{dataset_name}/{model_name}_{dataset_name}_best.pth')
 
     return train_accs, test_accs, quant_accs
 
@@ -154,6 +166,8 @@ def evaluate_quantized_model(original_model, testloader, n_bits=8, method='sigma
         float: Accuracy of the quantized model
     """
     # Initialize quantizer and create model copy
+    quantization_layer_num = 0
+    flatten_weight_len = 0
     quantizer = Quantizer()
     quantized_model = copy.deepcopy(original_model)
     
@@ -173,6 +187,7 @@ def evaluate_quantized_model(original_model, testloader, n_bits=8, method='sigma
     quantized_layers = {}
     for name, layer in layers.items():
         weight = layer['weight'].flatten()
+        flatten_weight_len += len(weight)
         layer_max = np.max(weight)
         layer_min = np.min(weight)
         layer_mu = np.mean(weight)
@@ -205,7 +220,8 @@ def evaluate_quantized_model(original_model, testloader, n_bits=8, method='sigma
             )
             weight = np.reshape(dequantized, layer['shape'])
             module.weight.data = torch.from_numpy(weight).float()
-    
+    quantization_layer_num = flatten_weight_len // 4096 + 1
+    print(f'Quantization layer num: {quantization_layer_num}')
     return test_model(quantized_model, testloader)
 
 def plot_results(train_accs, test_accs, quant_accs=None, model_name='Model', dataset_name='Dataset'):
@@ -252,7 +268,7 @@ def plot_results(train_accs, test_accs, quant_accs=None, model_name='Model', dat
     plt.tight_layout()
     
     # Save with higher quality
-    plt.savefig(f'../Experiment/{model_name}_{dataset_name}/{model_name}_{dataset_name}_results.png', 
+    plt.savefig(f'./src/Experiment/{model_name}_{dataset_name}/{model_name}_{dataset_name}_results.png', 
                 bbox_inches='tight',
                 dpi=300)
     plt.close()
@@ -276,8 +292,8 @@ def main():
                                                         'EfficientNetB0',
                                                         'RegNetX_200MF',
                                                         'SimpleDLA'
-                                                        ], default='LeNet5')
-    parser.add_argument('--dataset', type=str, choices=['CIFAR10', 'CIFAR100', 'FASHIONMNIST'], default='CIFAR10')
+                                                        ], default='ResNet18')
+    parser.add_argument('--dataset', type=str, choices=['CIFAR10', 'CIFAR100', 'FASHIONMNIST', 'IMAGENET'], default='CIFAR10')
     parser.add_argument('--lr', type=float, default=0.01)
     parser.add_argument('--epochs', type=int, default=1)
     parser.add_argument('--batch_size', type=int, default=128)
@@ -309,7 +325,7 @@ def main():
     
     # 初始化模型
     if args.model == 'LeNet5':
-        model = LeNet5(num_classes=num_classes)
+        model = LeNet5()
     elif args.model == 'ResNet18':
         model = ResNet18()
     elif args.model == 'VGG19':
@@ -340,7 +356,12 @@ def main():
         model = RegNetX_200MF()
     elif args.model == 'SimpleDLA':
         model = SimpleDLA()
-        
+    elif args.model == 'AlexNet':
+        model = AlexNet()
+    else:
+        raise ValueError(f"Model {args.model} not supported.")
+       
+
     model = model.to(device)
     if device == 'cuda':
         model = torch.nn.DataParallel(model)
@@ -350,7 +371,7 @@ def main():
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(model.parameters(), lr=args.lr,
                         momentum=0.9, weight_decay=5e-4)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=200)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 
     # Train the model with specified parameters
     train_accs, test_accs, quant_accs = train_model(
@@ -358,6 +379,7 @@ def main():
         trainloader=trainloader, 
         criterion=criterion,
         optimizer=optimizer,
+        scheduler=scheduler,
         device=device,
         epochs=args.epochs,
         quantize=args.quantize,
