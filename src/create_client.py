@@ -177,9 +177,17 @@ class SecureClient(NumPyClient):
         """Save the accuracy log to a CSV file."""
         if self.config.IID:
             csv_path = f"Experiment/{self.config.model_name}_{self.config.dataset_name}/{self.config.total_clients}_{self.config.selected_clients}/IID/client_{self.config.partition_id}_accuracy.csv"
-            print(csv_path)
+            if not os.path.exists(csv_path):
+                # create the file
+                with open(csv_path, "w") as f:
+                    f.write("")
         else:
             csv_path = f"Experiment/{self.config.model_name}_{self.config.dataset_name}/{self.config.total_clients}_{self.config.selected_clients}/NONIID/client_{self.config.partition_id}_accuracy.csv"
+            if not os.path.exists(csv_path):
+                # create the file
+                with open(csv_path, "w") as f:
+                    f.write("")
+
         try:
             with open(csv_path, "w") as f:
                 f.write("round,accuracy\n")
@@ -193,8 +201,16 @@ class SecureClient(NumPyClient):
         """Save time metrics to a CSV file."""
         if self.config.IID:
             stats_path = f"Experiment/{self.config.model_name}_{self.config.dataset_name}/{self.config.total_clients}_{self.config.selected_clients}/IID/client_{self.config.partition_id}_time_stats.csv"
+            if not os.path.exists(stats_path):
+                # create the file
+                with open(stats_path, "w") as f:
+                    f.write("")
         else:
             stats_path = f"Experiment/{self.config.model_name}_{self.config.dataset_name}/{self.config.total_clients}_{self.config.selected_clients}/NONIID/client_{self.config.partition_id}_time_stats.csv"
+            if not os.path.exists(stats_path):
+                # create the file
+                with open(stats_path, "w") as f:
+                    f.write("")
         try:
             with open(stats_path, "w") as f:
                 f.write("operation,round,time\n")
@@ -265,7 +281,7 @@ def main():
     parser.add_argument("--lr",             type=float, default=0.001)
     parser.add_argument("--min_lr",         type=float, default=1e-6)
     parser.add_argument("--scheduler",      type=str,   default="cosine", choices=["cosine", "step"])
-    parser.add_argument("--optimizer",      type=str,   default="sgd", choices=["adam", "sgd"])
+    parser.add_argument("--optimizer",      type=str,   default="adam", choices=["adam", "sgd"])
     parser.add_argument("--batch-size",     type=int,   default=2)
     parser.add_argument("--IID",            type=bool,  default=True)
     parser.add_argument("--alpha",          type=float, default=1.0)

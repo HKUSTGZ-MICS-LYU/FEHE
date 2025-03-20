@@ -4,6 +4,7 @@
 
 # Standard library imports
 import logging
+import os
 import socket
 import sys
 import time
@@ -35,9 +36,9 @@ class ServerConfig:
     """Server configuration parameters."""
     num_rounds:             int = 100
     
-    min_clients:            int = 20
-    min_evaluate_clients:   int = 20
-    min_available_clients:  int = 50
+    min_clients:            int = 2
+    min_evaluate_clients:   int = 2
+    min_available_clients:  int = 5
 
     poly_modulus_degree:    int = 4096
     plain_modulus:          int = 1032193
@@ -328,8 +329,14 @@ class SecureAggregationStrategy(FedAvg):
         try: 
             if self.IID:
                 time_pth = f"Experiment/{self.model_name}_{self.dataset_name}/{self.config.min_available_clients}_{self.config.min_clients}/IID/server_time_stats.csv"
+                if not os.path.exists(time_pth):
+                    with open(time_pth, "w") as f:
+                        f.write("")
             else:
                 time_pth = f"Experiment/{self.model_name}_{self.dataset_name}/{self.config.min_available_clients}_{self.config.min_clients}/NONIID/server_time_stats.csv"
+                if not os.path.exists(time_pth):
+                    with open(time_pth, "w") as f:
+                        f.write("")
             with open(time_pth, "w") as f:
                 f.write("operation,time\n")
                 for operation, times in self.time_metrics.items():
@@ -339,8 +346,14 @@ class SecureAggregationStrategy(FedAvg):
             # Save communication stats
             if self.IID:
                 comm_pth = f"Experiment/{self.model_name}_{self.dataset_name}/{self.config.min_available_clients}_{self.config.min_clients}/IID/server_communication.csv"
+                if not os.path.exists(comm_pth):
+                    with open(comm_pth, "w") as f:
+                        f.write("")
             else:
                 comm_pth = f"Experiment/{self.model_name}_{self.dataset_name}/{self.config.min_available_clients}_{self.config.min_clients}/NONIID/server_communication.csv"
+                if not os.path.exists(comm_pth):
+                    with open(comm_pth, "w") as f:
+                        f.write("")
             with open(comm_pth, "w") as f:
                 f.write(f"Total communication (GB),{self.total_communication / 1024 ** 3}")
 
