@@ -1,24 +1,25 @@
+import random
 import numpy as np
 from Rq import Rq
+import math
 from utils import crange
 
 
+
+
 class RLWE:
-    def __init__(self, n, p, t, std):
+    def __init__(self, n, p, t):
         assert np.log2(n) == int(np.log2(n))
         self.n = n
         self.p = p
         self.t = t
-        self.std = std
+        self.delta = self.p // self.t
 
     def generate_keys(self):
-        s = discrete_gaussian(self.n, self.p, std=self.std)
-        e = discrete_gaussian(self.n, self.p, std=self.std)
-
-        a1 = discrete_uniform(self.n, self.p)
-        a0 = -1 * (a1 * s + self.t * e)
-
-        return (s, (a0, a1))  # (secret, public)
+        s = sample(2, self.p, self.n)
+        e = sample(2, self.p, self.n)
+        a = sample(self.p, self.p, self.n)
+        return (s, (-1 * (a * s + e), a))  # (secret, public)
 
     def encrypt(self, m, a):
         '''
@@ -26,13 +27,13 @@ class RLWE:
             m: plaintext (mod t)
             a: public key (a0, a1)
         '''
-        a0, a1 = a
-        e = [discrete_gaussian(self.n, self.p, std=self.std)
-             for _ in range(3)]
+        e1 = sample(2, self.p, self.n)
+        e2 = sample(2, self.p, self.n)
+        u = sample(2, self.p, self.n)
+        m = Rq(m.poly.coeffs, self.p) 
+        ct = (self.delta * m + e1 + a[0] * u, a[1] * u + e2)
 
-        m = Rq(m.poly.coeffs, self.p)
-
-        return (m + a0 * e[0] + self.t * e[2], a1 * e[0] + self.t * e[1])
+        return ct, e1, e2, u
 
     def decrypt(self, c, s):
         '''
@@ -40,12 +41,11 @@ class RLWE:
             c: ciphertext (c0, c1, ..., ck)
             s: secret key
         '''
-        c = [ci * s**i for i, ci in enumerate(c)]
-
-        m = c[0]
-        for i in range(1, len(c)):
-            m += c[i]
-
+        temp = c[1] * s
+        m = c[0] + temp
+        for i in range(len(m.poly.coeffs)):
+            m.poly.coeffs[i] = round(m.poly.coeffs[i] / self.delta)
+        
         m = Rq(m.poly.coeffs, self.t)
 
         return m
@@ -97,6 +97,11 @@ class RLWE:
 
         return c
 
+def sample(num, q, n):
+    coeffs = [0] * n
+    for i in range(n):
+        coeffs[i] = random.randint(0, num-1)
+    return Rq(coeffs, q)
 
 def discrete_gaussian(n, q, mean=0., std=1.):
     coeffs = np.round(std * np.random.randn(n))

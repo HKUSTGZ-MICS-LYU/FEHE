@@ -1,5 +1,6 @@
 import numpy as np
-from utils import crange
+from NTT import ntt, intt
+from utils import crange, generate_twidle_factors
 
 
 class Rq(object):
@@ -40,11 +41,19 @@ class Rq(object):
     def __mul__(self, other):
         q, r = np.polydiv(np.polymul(self.poly, other.poly), self.f)
         coeffs = r.coeffs
-        return Rq(coeffs, self.q)
+        res = Rq(coeffs, self.q)    
+        return res
+     
 
     def __rmul__(self, integer):
         coeffs = (self.poly.coeffs * integer)
         return Rq(coeffs, self.q)
+    
+    def __sub__(self, other):
+        coeffs = np.polysub(self.poly, other.poly).coeffs
+        return Rq(coeffs, self.q)
+    
+        
 
     def __pow__(self, integer):
         if integer == 0:

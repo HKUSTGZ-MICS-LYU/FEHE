@@ -1,46 +1,30 @@
+from math import ceil
 import numpy as np
 from Rq import Rq
 from RLWE import RLWE
+import sympy
+from NTT import *
+from utils import generate_twidle_factors, crange
 
+def center_lift(x, q):
+    return np.array([int(xi) if xi <= q//2 else int(xi - q) for xi in x])
 
 if __name__ == '__main__':
-    n = 8  # power of 2
-    q = 67108289  # prime number, q = 1 (mod 2n)
-    t = 37  # prime number, t < q
-    std = 3  # standard deviation of Gaussian distribution
+    n = 16        # polynomial degree
+    q = 67108289    # ciphertext modulus
+    t = 37          # plaintext modulus
 
-    rlwe = RLWE(n, q, t, std)
+
+    rlwe = RLWE(n, q, t)
     (sec, pub) = rlwe.generate_keys()
 
     m0 = Rq(np.random.randint(t, size=n), t)  # plaintext
-    m1 = Rq(np.random.randint(t, size=n), t)  # plaintext
-
-    c0 = rlwe.encrypt(m0, pub)
-    c1 = rlwe.encrypt(m1, pub)
-
+    c0, e1, e2, u = rlwe.encrypt(m0, pub)
     m_0 = rlwe.decrypt(c0, sec)
-    m_1 = rlwe.decrypt(c1, sec)
+    print(f"{m0}")
+    print(f"{m_0}")
+    
 
-    print(m0)
-    print(m_0)
-    print()
 
-    print(m1)
-    print(m_1)
-    print()
-
-    print('# Add')
-    print(m0 + m1)
-
-    c_add = rlwe.add(c0, c1)
-    m_add = rlwe.decrypt(c_add, sec)
-    print(m_add)
-    print()
-
-    print('# Mul')
-    print(m0 * m1)
-
-    c_mul = rlwe.mul(c0, c1)
-    m_mul = rlwe.decrypt(c_mul, sec)
-    print(m_mul)
-    print()
+    
+  

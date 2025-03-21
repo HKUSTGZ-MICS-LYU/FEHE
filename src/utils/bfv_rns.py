@@ -907,10 +907,10 @@ def Print(v, n):
         
 
 
-n = 64
+n = 4
 
 t = [65537]
-q = [28,28,28]
+q = [32]
 
 # Generate list of numbers from 0 to n-1
 vector1 = list(range(n))
@@ -922,7 +922,12 @@ context = BFVContext(q, n, t)
 pt1 = context.crt_and_encode(vector1)
 
 ct = context.encrypt(pt1)
-context.printBudget(ct)
+
+
+pt1 = context.decrypt(ct)
+
+pt1 = context.decode_and_reconstruct(pt1)
+print(pt1)
 
 
  
