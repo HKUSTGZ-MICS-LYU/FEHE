@@ -151,7 +151,11 @@ def _split_non_IID(dataset, num_clients: int, alpha: float, samples_per_client: 
         List[List[int]]: 每个客户端的样本索引列表。
     """
     if hasattr(dataset, 'targets'):
-        labels = np.array(dataset.targets)
+        try:
+            labels = np.array(dataset.targets, copy=True)
+        except TypeError:
+            # 如果上面方法失败，回退到列表转换
+            labels = np.array(list(dataset.targets))
     else:
         labels = np.array([label for _, label in dataset])
     num_classes = len(np.unique(labels))

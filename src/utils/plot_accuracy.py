@@ -8,7 +8,7 @@ import re
 # Read all available accuracy logs
 client_accuracy = {}
 # 使用 glob 查找所有客户端的日志文件
-for csv_path in glob.glob("/hpc/home/connect.xmeng027/Work/FEHE/src/Experiment/LeNet5_FASHIONMNIST/10_10/IID/client_*_accuracy.csv"):
+for csv_path in glob.glob("/hpc2hdd/home/xmeng027/Work/FEHE/src/Experiment/ResNet18_CIFAR10/50_20/NONIID/client_*_accuracy.csv"):
     # 从文件名中提取客户端ID，使用更可靠的方法
     filename = os.path.basename(csv_path)
     # 使用正则表达式匹配"client_X_accuracy.csv"中的X
@@ -61,6 +61,9 @@ plt.figure(figsize=(14, 7))
 plt.gca().set_facecolor('#f8f9fa')
 plt.grid(True, linestyle='--', alpha=0.3, zorder=0)
 
+# 设置全局字体大小
+plt.rcParams.update({'font.size': 14})
+
 # Plot each client's accuracy with better colors
 colors = plt.cm.Pastel1(np.linspace(0, 1, len(client_accuracy)))
 for (client_id, data), color in zip(client_accuracy.items(), colors):
@@ -71,16 +74,16 @@ for (client_id, data), color in zip(client_accuracy.items(), colors):
             zorder=2)
 
 # Plot the mean accuracy with enhanced style
-plt.plot(mean_accuracy["round"], mean_accuracy["accuracy"], 
-         label=f"Mean Accuracy (Max: {max_mean_accuracy:.4f})", 
+line, = plt.plot(mean_accuracy["round"], mean_accuracy["accuracy"], 
          color="red", 
          linewidth=3, 
          linestyle="--",
+         label="Global Model Accuracy",
          zorder=3)
 
 # Add marker for maximum mean accuracy
 plt.plot(max_accuracy_round, max_mean_accuracy, 'r*', 
-         markersize=20,
+         markersize=20,  # 增大星星大小
          zorder=4)
 
 # Add text annotation for max accuracy with enhanced style
@@ -88,6 +91,7 @@ plt.annotate(f'Max: {max_mean_accuracy:.4f}\nRound: {int(max_accuracy_round)}',
             xy=(max_accuracy_round, max_mean_accuracy),
             xytext=(20, 20), 
             textcoords='offset points',
+            fontsize=16,  # 增大注释字体
             bbox=dict(boxstyle='round,pad=0.5', 
                      fc='yellow', 
                      alpha=0.8,
@@ -98,18 +102,19 @@ plt.annotate(f'Max: {max_mean_accuracy:.4f}\nRound: {int(max_accuracy_round)}',
                           ec='none',
                           connectionstyle='arc3,rad=-0.3'))
 
-# Enhance labels and title
-plt.xlabel("Round", fontsize=12, weight='bold')
-plt.ylabel("Accuracy", fontsize=12, weight='bold')
-plt.title("Client Accuracy Over Time", fontsize=16, weight='bold', pad=20)
+# Enhance labels and title with larger font sizes
+plt.xlabel("Round", fontsize=24, weight='bold')  # 从18增大到24
+plt.ylabel("Accuracy", fontsize=24, weight='bold')  # 从18增大到24
+plt.title("Accuracy Over Time", fontsize=26, weight='bold', pad=20)  # 从22增大到26
 
-# Enhance legend
-plt.legend(bbox_to_anchor=(1.05, 1), 
-          loc='upper left', 
-          borderaxespad=0.,
+# Enhance legend with larger font
+plt.legend(handles=[line],  # 明确指定使用这个线条对象
+          labels=["Global Model Accuracy"],
+          loc='lower right',
           frameon=True,
           fancybox=True,
-          shadow=True)
+          shadow=True,
+          fontsize=15)
 
 # Remove top and right spines
 plt.gca().spines['top'].set_visible(False)
@@ -117,20 +122,29 @@ plt.gca().spines['right'].set_visible(False)
 plt.gca().spines['left'].set_linewidth(1.5)
 plt.gca().spines['bottom'].set_linewidth(1.5)
 
-# Make tick labels bold
-plt.xticks(weight='bold')
-plt.yticks(weight='bold')
+# Make tick labels bold and larger
+plt.xticks(weight='bold', fontsize=18)  # 从14增大到18
+plt.yticks(weight='bold', fontsize=18)  # 从14增大到18
 
 # Adjust layout
 plt.tight_layout()
 plt.subplots_adjust(right=0.85)
 
-# Save with white background
+# Save with white background (PNG format)
 plt.savefig("client_accuracy.png", 
             dpi=300, 
             bbox_inches='tight',
             facecolor='white',
             edgecolor='none')
 
+# 保存为PDF格式
+plt.savefig("client_accuracy.pdf", 
+            dpi=1200, 
+            bbox_inches='tight',
+            facecolor='white',
+            edgecolor='none',
+            format='pdf')
+
 # Print the statistics
 print(f"\nMean Accuracy Maximum: {max_mean_accuracy:.4f} (Round {int(max_accuracy_round)})")
+print(f"图表已保存为PNG和PDF格式")

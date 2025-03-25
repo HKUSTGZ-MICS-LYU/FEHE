@@ -58,7 +58,7 @@ Server Side Implementation
 @dataclass
 class ServerConfig:
     """Server configuration parameters."""
-    num_rounds:             int = 3  # 为演示，默认改小一些
+    num_rounds:             int = 100  # 为演示，默认改小一些
     min_clients:            int = 2
     min_evaluate_clients:   int = 2
     min_available_clients:  int = 2
@@ -488,7 +488,7 @@ class SecureClient(NumPyClient):
         self.accuracy_log[round_idx] = accuracy
 
         # 假设在最后一轮时保存各种本地统计
-        if round_idx == self.config.client_number:  # 或者你想用 num_rounds=xxx
+        if round_idx == 100:
             self._finalize_training()
 
         return loss_val, len(self.valloader), {"accuracy": float(accuracy)}
@@ -546,20 +546,19 @@ def run_client(args, partition_id: int):
     启动某个客户端的流程。
     """
     config = ClientConfig(
-        partition_id   = partition_id,
-        client_number  = args.num_rounds,  # 这里仅示例，你可以自定义
-        lr            = args.lr,
-        min_lr        = 1e-6,
-        scheduler     = "cosine",
-        optimizer     = "adam",
-        batch_size    = args.batch_size,
-        IID           = args.iid,
-        alpha         = args.alpha,
-        model_name    = args.model_name,
-        dataset_name  = args.dataset_name,
-        # 如果还需要 total_clients / selected_clients，请在这里赋值
-        total_clients = args.num_clients,
-        selected_clients = args.min_clients,
+        partition_id        = partition_id,
+        client_number       = args.num_clients,  
+        lr                  = args.lr,
+        min_lr              = 1e-6,
+        scheduler           = "cosine",
+        optimizer           = "adam",
+        batch_size          = args.batch_size,
+        IID                 = args.iid,
+        alpha               = args.alpha,
+        model_name          = args.model_name,
+        dataset_name        = args.dataset_name,
+        total_clients       = args.num_clients,
+        selected_clients    = args.min_clients
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -610,29 +609,29 @@ def main():
     parser.add_argument("--mode", type=str, default="all",
                         choices=["server", "client", "all"],
                         help="选择启动模式。")
-    parser.add_argument("--num-clients", type=int, default=5,
-                        help="客户端数量(仅当 mode=all 时有效)。")
-    parser.add_argument("--num-rounds", type=int, default=10,
+    parser.add_argument("--num-rounds", type=int, default=100,
                         help="全局训练总轮数。")
-    parser.add_argument("--min-clients", type=int, default=2,
+    parser.add_argument("--num-clients", type=int, default=50,
+                        help="客户端数量(仅当 mode=all 时有效)。")
+    parser.add_argument("--min-clients", type=int, default=20,
                         help="每轮参与训练的最少客户端数。")
-    parser.add_argument("--min-available-clients", type=int, default=5,
+    parser.add_argument("--min-available-clients", type=int, default=20,
                         help="联邦中最少可用客户端数(用于策略中 fraction_fit 等)。")
     parser.add_argument("--lr", type=float, default=0.001,
                         help="客户端学习率。")
-    parser.add_argument("--batch-size", type=int, default=32,
+    parser.add_argument("--batch-size", type=int, default=512,
                         help="客户端训练 batch size。")
     parser.add_argument("--alpha", type=float, default=1.0,
                         help="Non-IID Dirichlet alpha。仅当非IID时有用。")
-    parser.add_argument("--iid", action="store_true", default=True,
-                        help="若指定则使用 IID 数据分割，否则非IID。")
-    parser.add_argument("--model-name", type=str, default="LeNet5",
+    parser.add_argument("--iid", action="store_true", default=False,
+                        help="若指定则使用 IID 数据分割,否则非IID。")
+    parser.add_argument("--model-name", type=str, default="ResNet18",
                         help="模型名称。")
-    parser.add_argument("--dataset-name", type=str, default="FASHIONMNIST",
+    parser.add_argument("--dataset-name", type=str, default="CIFAR10",
                         help="数据集名称。")
 
     args = parser.parse_args()
-
+    print(args)
     if args.mode == "server":
         # 仅启动服务器
         print("[Main] 启动服务器...")
